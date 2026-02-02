@@ -21,3 +21,7 @@ path = "examples/editor.rs"
 [[example]]
 name = "distribution"
 path = "examples/distribution.rs"
+
+[[example]]
+name = "road"
+path = "examples/road.rs"

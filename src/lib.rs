@@ -53,6 +53,7 @@
 //! - [`SplinePlugin`]: Core spline functionality and type registration (required)
 //! - [`SplineEditorPlugin`]: Interactive editing with gizmos and hotkeys (optional)
 //! - [`SplineDistributionPlugin`]: Distribute entities along splines (optional)
+//! - [`SplineRoadPlugin`]: Generate road meshes along splines (optional)
 //! - [`CameraPlugin`]: Orbit and fly camera controls (optional)
 //!
 //! ## Disabling the Editor
@@ -68,6 +69,7 @@
 
 pub mod camera;
 pub mod distribution;
+pub mod road;
 pub mod spline;
 
 #[cfg(feature = "editor")]
@@ -75,6 +77,7 @@ pub mod editor;
 
 pub use camera::CameraPlugin;
 pub use distribution::SplineDistributionPlugin;
+pub use road::SplineRoadPlugin;
 pub use spline::SplinePlugin;
 
 #[cfg(feature = "editor")]
@@ -86,6 +89,9 @@ pub mod prelude {
     pub use crate::distribution::{
         DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
         SplineDistribution, SplineDistributionPlugin,
+    };
+    pub use crate::road::{
+        create_road_segment_mesh, GeneratedRoadMesh, SplineRoad, SplineRoadPlugin,
     };
     pub use crate::spline::{
         ControlPointMarker, SelectedControlPoint, SelectedSpline, Spline, SplineEvaluator,
