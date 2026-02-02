@@ -54,6 +54,7 @@
 //! - [`SplineEditorPlugin`]: Interactive editing with gizmos and hotkeys (optional)
 //! - [`SplineDistributionPlugin`]: Distribute entities along splines (optional)
 //! - [`SplineRoadPlugin`]: Generate road meshes along splines (optional)
+//! - [`SplineFollowPlugin`]: Animate entities following spline paths (optional)
 //! - [`CameraPlugin`]: Orbit and fly camera controls (optional)
 //!
 //! ## Disabling the Editor
@@ -69,6 +70,7 @@
 
 pub mod camera;
 pub mod distribution;
+pub mod path_follow;
 pub mod road;
 pub mod spline;
 
@@ -77,6 +79,7 @@ pub mod editor;
 
 pub use camera::CameraPlugin;
 pub use distribution::SplineDistributionPlugin;
+pub use path_follow::SplineFollowPlugin;
 pub use road::SplineRoadPlugin;
 pub use spline::SplinePlugin;
 
@@ -89,6 +92,10 @@ pub mod prelude {
     pub use crate::distribution::{
         DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
         SplineDistribution, SplineDistributionPlugin,
+    };
+    pub use crate::path_follow::{
+        FollowerEvent, FollowerEventKind, FollowerState, LoopMode, SplineFollowPlugin,
+        SplineFollower,
     };
     pub use crate::road::{
         create_road_segment_mesh, GeneratedRoadMesh, SplineRoad, SplineRoadPlugin,

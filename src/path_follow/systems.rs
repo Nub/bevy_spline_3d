@@ -1,0 +1,166 @@
+use bevy::prelude::*;
+
+use crate::spline::Spline;
+
+use super::{FollowerEvent, FollowerEventKind, FollowerState, LoopMode, SplineFollower};
+
+/// Number of samples for arc-length approximation.
+const ARC_LENGTH_SAMPLES: usize = 128;
+
+/// System that updates all spline followers.
+pub fn update_spline_followers(
+    mut followers: Query<(Entity, &mut SplineFollower, &mut Transform)>,
+    splines: Query<&Spline>,
+    time: Res<Time>,
+    mut events: MessageWriter<FollowerEvent>,
+) {
+    let delta = time.delta_secs();
+
+    for (entity, mut follower, mut transform) in &mut followers {
+        // Skip if not playing
+        if follower.state != FollowerState::Playing {
+            continue;
+        }
+
+        // Get the spline
+        let Ok(spline) = splines.get(follower.spline) else {
+            continue;
+        };
+
+        if !spline.is_valid() {
+            continue;
+        }
+
+        // Calculate t delta based on speed mode
+        let dt = if follower.constant_speed {
+            // Arc-length parameterization for constant speed
+            let total_length = approximate_arc_length(spline);
+            if total_length > 0.0 {
+                (follower.speed * delta) / total_length
+            } else {
+                0.0
+            }
+        } else {
+            // Simple parametric - speed is in t units per second
+            follower.speed * delta
+        };
+
+        // Update t based on direction
+        let new_t = follower.t + dt * follower.direction;
+
+        // Handle bounds and loop modes
+        let (final_t, new_direction, event) = handle_bounds(new_t, follower.direction, follower.loop_mode);
+
+        follower.t = final_t;
+        follower.direction = new_direction;
+
+        // Emit event if any
+        if let Some(kind) = event {
+            events.write(FollowerEvent { entity, kind });
+
+            // Update state for finished
+            if kind == FollowerEventKind::Finished {
+                follower.state = FollowerState::Finished;
+            }
+        }
+
+        // Update transform
+        if let Some(position) = spline.evaluate(follower.t) {
+            let rotation = if follower.align_to_tangent {
+                calculate_orientation(spline, follower.t, follower.up_vector, follower.direction)
+            } else {
+                transform.rotation
+            };
+
+            // Apply offset in local space
+            let world_offset = rotation * follower.offset;
+
+            transform.translation = position + world_offset;
+            transform.rotation = rotation;
+        }
+    }
+}
+
+/// Handle t value bounds based on loop mode.
+/// Returns (new_t, new_direction, optional_event).
+fn handle_bounds(
+    t: f32,
+    direction: f32,
+    loop_mode: LoopMode,
+) -> (f32, f32, Option<FollowerEventKind>) {
+    match loop_mode {
+        LoopMode::Once => {
+            if t >= 1.0 {
+                (1.0, direction, Some(FollowerEventKind::Finished))
+            } else if t <= 0.0 {
+                (0.0, direction, Some(FollowerEventKind::Finished))
+            } else {
+                (t, direction, None)
+            }
+        }
+        LoopMode::Loop => {
+            if t >= 1.0 {
+                (t.fract(), direction, Some(FollowerEventKind::LoopCompleted))
+            } else if t <= 0.0 {
+                (1.0 + t.fract(), direction, Some(FollowerEventKind::LoopCompleted))
+            } else {
+                (t, direction, None)
+            }
+        }
+        LoopMode::PingPong => {
+            if t >= 1.0 {
+                // Bounce back
+                let overshoot = t - 1.0;
+                (1.0 - overshoot, -1.0, Some(FollowerEventKind::ReachedEnd))
+            } else if t <= 0.0 {
+                // Bounce forward
+                let overshoot = -t;
+                (overshoot, 1.0, Some(FollowerEventKind::ReachedStart))
+            } else {
+                (t, direction, None)
+            }
+        }
+    }
+}
+
+/// Calculate orientation from spline tangent.
+fn calculate_orientation(spline: &Spline, t: f32, up: Vec3, direction: f32) -> Quat {
+    let Some(tangent) = spline.evaluate_tangent(t) else {
+        return Quat::IDENTITY;
+    };
+
+    let tangent = tangent.normalize_or_zero();
+    if tangent.length_squared() < 0.001 {
+        return Quat::IDENTITY;
+    }
+
+    // Apply direction (flip tangent if going backwards)
+    let forward = if direction >= 0.0 { tangent } else { -tangent };
+
+    // Build rotation matrix
+    let right = up.cross(forward).normalize_or_zero();
+    if right.length_squared() < 0.001 {
+        // Forward is parallel to up, use different reference
+        let right = Vec3::X.cross(forward).normalize_or_zero();
+        let corrected_up = forward.cross(right).normalize_or_zero();
+        Quat::from_mat3(&Mat3::from_cols(right, corrected_up, forward))
+    } else {
+        let corrected_up = forward.cross(right).normalize_or_zero();
+        Quat::from_mat3(&Mat3::from_cols(right, corrected_up, forward))
+    }
+}
+
+/// Approximate the total arc length of a spline.
+fn approximate_arc_length(spline: &Spline) -> f32 {
+    let mut length = 0.0;
+    let mut prev_point = spline.evaluate(0.0).unwrap_or(Vec3::ZERO);
+
+    for i in 1..=ARC_LENGTH_SAMPLES {
+        let t = i as f32 / ARC_LENGTH_SAMPLES as f32;
+        let point = spline.evaluate(t).unwrap_or(prev_point);
+        length += (point - prev_point).length();
+        prev_point = point;
+    }
+
+    length
+}
