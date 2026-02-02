@@ -175,16 +175,17 @@ pub fn generate_intersection_mesh(
 
     // Create triangles connecting center to edge vertices
     // Vertices are: 0=center, then pairs of (left, right) for each road
+    // Use CCW winding for upward-facing normals
     let num_roads = endpoints.len();
     for i in 0..num_roads {
         let right_idx = 2 + i * 2;
         let next_left_idx = 1 + ((i + 1) % num_roads) * 2;
 
-        // Triangle from center to current right edge to next left edge
-        // This fills the gap between roads
+        // Triangle from center to next left edge to current right edge
+        // This fills the gap between roads (CCW winding)
         indices.push(0);
-        indices.push(right_idx as u32);
         indices.push(next_left_idx as u32);
+        indices.push(right_idx as u32);
     }
 
     // Also create triangles for the road entry areas
@@ -192,10 +193,10 @@ pub fn generate_intersection_mesh(
         let left_idx = 1 + i * 2;
         let right_idx = 2 + i * 2;
 
-        // Triangle from center to left edge to right edge (road entry)
+        // Triangle from center to right edge to left edge (road entry, CCW winding)
         indices.push(0);
-        indices.push(left_idx as u32);
         indices.push(right_idx as u32);
+        indices.push(left_idx as u32);
     }
 
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
