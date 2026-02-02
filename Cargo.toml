@@ -1,0 +1,23 @@
+[package]
+name = "bevy_spline_3d"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A Bevy plugin for 3D spline editing with interactive gizmos"
+keywords = ["bevy", "spline", "bezier", "editor", "3d"]
+categories = ["game-development", "graphics", "rendering"]
+
+[features]
+default = ["editor"]
+editor = []  # Enable interactive editor and gizmos
+
+[dependencies]
+bevy = "0.15"
+
+[[example]]
+name = "editor"
+path = "examples/editor.rs"
+
+[[example]]
+name = "distribution"
+path = "examples/distribution.rs"
