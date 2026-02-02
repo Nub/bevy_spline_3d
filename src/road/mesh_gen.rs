@@ -4,8 +4,10 @@ use bevy::{
 };
 
 use crate::spline::Spline;
+use crate::surface::SurfaceProjection;
 
 use super::{GeneratedRoadMesh, SplineRoad};
+use super::projection::NeedsProjection;
 
 /// Creates a simple road segment mesh for testing.
 ///
@@ -74,7 +76,7 @@ pub fn create_road_segment_mesh(
         let back_left = (i + profile_len) as u32;
         let back_right = (i + 1 + profile_len) as u32;
 
-        // Two triangles per quad (CCW winding)
+        // Two triangles per quad (CW winding for upward-facing in Bevy)
         indices.extend_from_slice(&[front_left, front_right, back_left]);
         indices.extend_from_slice(&[front_right, back_right, back_left]);
     }
@@ -198,7 +200,8 @@ pub fn generate_road_mesh(
             let c = (next_row_start + i) as u32;
             let d = (next_row_start + i + 1) as u32;
 
-            // Two triangles per quad (CCW winding)
+            // Two triangles per quad (CW winding for upward-facing in Bevy)
+            // a=back-left, b=back-right, c=front-left, d=front-right
             indices.extend_from_slice(&[a, b, c]);
             indices.extend_from_slice(&[b, d, c]);
         }
@@ -217,6 +220,7 @@ pub fn generate_road_mesh(
 }
 
 /// System to update road meshes when splines change.
+#[allow(clippy::too_many_arguments)]
 pub fn update_road_meshes(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -226,6 +230,7 @@ pub fn update_road_meshes(
     all_roads: Query<(Entity, &SplineRoad, Option<&MeshMaterial3d<StandardMaterial>>)>,
     existing_road_meshes: Query<(Entity, &GeneratedRoadMesh)>,
     road_mesh_children: Query<&Children>,
+    projection_query: Query<(), With<SurfaceProjection>>,
 ) {
     let changed_spline_set: std::collections::HashSet<Entity> = changed_splines.iter().collect();
 
@@ -278,10 +283,15 @@ pub fn update_road_meshes(
 
         if let Some(mesh_entity) = found_mesh_entity {
             // Update existing mesh
-            commands.entity(mesh_entity).insert(Mesh3d(mesh_handle));
+            let mut entity_commands = commands.entity(mesh_entity);
+            entity_commands.insert(Mesh3d(mesh_handle));
             // Update material if present
             if let Some(mat) = material {
-                commands.entity(mesh_entity).insert(mat.clone());
+                entity_commands.insert(mat.clone());
+            }
+            // Mark for surface projection if enabled
+            if projection_query.get(road_entity).is_ok() {
+                entity_commands.insert(NeedsProjection);
             }
         } else {
             // Spawn new mesh entity as child
@@ -295,6 +305,11 @@ pub fn update_road_meshes(
             // Copy material from parent
             if let Some(mat) = material {
                 entity_commands.insert(mat.clone());
+            }
+
+            // Mark for surface projection if enabled
+            if projection_query.get(road_entity).is_ok() {
+                entity_commands.insert(NeedsProjection);
             }
 
             let mesh_entity = entity_commands.id();

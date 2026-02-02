@@ -1,9 +1,12 @@
 mod components;
+mod projection;
 mod systems;
 
 pub use components::*;
+pub use projection::NeedsInstanceProjection;
 
 use bevy::prelude::*;
+use bevy::transform::TransformSystems;
 
 use crate::spline::SplinePlugin;
 
@@ -76,5 +79,12 @@ impl Plugin for SplineDistributionPlugin {
                 )
                     .chain(),
             );
+
+        // Run projection in PostUpdate after transform propagation
+        app.add_systems(
+            PostUpdate,
+            projection::project_distributed_instances
+                .after(TransformSystems::Propagate),
+        );
     }
 }

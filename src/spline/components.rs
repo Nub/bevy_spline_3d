@@ -128,3 +128,15 @@ pub struct ControlPointMarker {
 #[derive(Component, Debug, Clone, Copy, Reflect, Default)]
 #[reflect(Component)]
 pub struct SelectedControlPoint;
+
+/// Cached sampled points for a spline curve.
+///
+/// This component stores pre-computed sample points to avoid
+/// resampling the spline every frame during gizmo rendering.
+#[derive(Component, Default, Clone, Debug)]
+pub struct CachedSplineCurve {
+    /// The sampled points along the curve.
+    pub points: Vec<Vec3>,
+    /// The resolution used when sampling (to detect settings changes).
+    pub resolution: usize,
+}

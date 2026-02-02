@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 
 use crate::spline::Spline;
+use crate::surface::SurfaceProjection;
 
 use super::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
     DistributionState, SplineDistribution,
 };
+use super::projection::NeedsInstanceProjection;
 
 /// Number of samples used to compute arc length lookup table.
 const ARC_LENGTH_SAMPLES: usize = 256;
@@ -20,6 +22,7 @@ pub fn hide_source_entities(
 }
 
 /// Update distributed instances when distribution or spline changes.
+#[allow(clippy::too_many_arguments)]
 pub fn update_distributions(
     mut commands: Commands,
     distributions: Query<(Entity, &SplineDistribution, Option<&DistributionState>)>,
@@ -32,6 +35,7 @@ pub fn update_distributions(
     mut instances: Query<(&mut Transform, &DistributedInstance)>,
     changed_splines: Query<Entity, Changed<Spline>>,
     changed_distributions: Query<Entity, Changed<SplineDistribution>>,
+    projection_query: Query<(), With<SurfaceProjection>>,
 ) {
     // Collect changed spline entities for quick lookup
     let changed_spline_set: std::collections::HashSet<Entity> =
@@ -107,6 +111,11 @@ pub fn update_distributions(
                     }
                 }
 
+                // Mark for surface projection if enabled
+                if projection_query.get(dist_entity).is_ok() {
+                    entity_commands.insert(NeedsInstanceProjection);
+                }
+
                 new_instances.push(entity_commands.id());
             }
 
@@ -123,6 +132,11 @@ pub fn update_distributions(
                     if let Ok((mut transform, _)) = instances.get_mut(instance_entity) {
                         let t = t_values.get(i).copied().unwrap_or(0.5);
                         *transform = calculate_transform(spline, t, distribution);
+
+                        // Mark for surface projection if enabled
+                        if projection_query.get(dist_entity).is_ok() {
+                            commands.entity(instance_entity).insert(NeedsInstanceProjection);
+                        }
                     }
                 }
             }

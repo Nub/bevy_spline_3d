@@ -1,7 +1,12 @@
 mod components;
+mod projection;
 mod types;
 
 pub use components::*;
+pub use projection::{
+    get_effective_control_points, get_effective_curve_points, project_spline_point,
+    ProjectedSplineCache, SplineProjectionConfig,
+};
 pub use types::*;
 
 use bevy::prelude::*;

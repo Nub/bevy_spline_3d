@@ -13,6 +13,7 @@ editor = []  # Enable interactive editor and gizmos
 
 [dependencies]
 bevy = "0.18"
+avian3d = "0.5"
 
 [[example]]
 name = "editor"
@@ -25,3 +26,15 @@ path = "examples/distribution.rs"
 [[example]]
 name = "road"
 path = "examples/road.rs"
+
+[[example]]
+name = "intersection"
+path = "examples/intersection.rs"
+
+[[example]]
+name = "path_follow"
+path = "examples/path_follow.rs"
+
+[[example]]
+name = "surface_projection"
+path = "examples/surface_projection.rs"

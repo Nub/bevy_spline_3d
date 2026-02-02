@@ -1,6 +1,9 @@
 use bevy::{prelude::*, window::PrimaryWindow};
 
-use crate::spline::{ControlPointMarker, SelectedControlPoint, SelectedSpline, Spline};
+use crate::spline::{
+    get_effective_control_points, ControlPointMarker, ProjectedSplineCache, SelectedControlPoint,
+    SelectedSpline, Spline,
+};
 
 use super::EditorSettings;
 
@@ -20,11 +23,12 @@ pub struct SelectionState {
 }
 
 /// System to handle mouse picking of control points.
+/// Uses projected positions when surface projection is enabled for the spline.
 pub fn pick_control_points(
     settings: Res<EditorSettings>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    splines: Query<(Entity, &Spline)>,
+    splines: Query<(Entity, &Spline, Option<&ProjectedSplineCache>)>,
     mut selection_state: ResMut<SelectionState>,
 ) {
     if !settings.enabled {
@@ -55,10 +59,13 @@ pub fn pick_control_points(
 
     let mut closest: Option<(Entity, usize, f32)> = None;
 
-    for (entity, spline) in &splines {
-        for (i, &point) in spline.control_points.iter().enumerate() {
+    for (entity, spline, projected) in &splines {
+        // Use the centralized helper to get effective control points
+        let control_points = get_effective_control_points(spline, projected);
+
+        for (i, &point) in control_points.iter().enumerate() {
             // Simple sphere-ray intersection
-            let pick_radius = settings.point_radius * 2.0;
+            let pick_radius = settings.sizes.point_radius * 2.0;
             if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, point, pick_radius) {
                 if closest.is_none() || dist < closest.unwrap().2 {
                     closest = Some((entity, i, dist));
@@ -156,7 +163,7 @@ pub fn handle_point_drag(
     mut selection_state: ResMut<SelectionState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut splines: Query<&mut Spline>,
+    mut splines: Query<(&mut Spline, Option<&ProjectedSplineCache>)>,
 ) {
     if !settings.enabled {
         return;
@@ -172,9 +179,11 @@ pub fn handle_point_drag(
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
 
                 // Store initial plane point for consistent dragging
-                if let Ok(spline) = splines.get(spline_entity) {
-                    if point_index < spline.control_points.len() {
-                        selection_state.drag_plane_point = spline.control_points[point_index];
+                // Use the centralized helper to get the effective position (matches visual)
+                if let Ok((spline, projected)) = splines.get(spline_entity) {
+                    let control_points = get_effective_control_points(spline, projected);
+                    if let Some(&point) = control_points.get(point_index) {
+                        selection_state.drag_plane_point = point;
                     }
                 }
             }
@@ -207,7 +216,7 @@ pub fn handle_point_drag(
         let plane_normal = selection_state.drag_plane_normal;
 
         for &(spline_entity, point_index) in &selection_state.dragged_points.clone() {
-            if let Ok(mut spline) = splines.get_mut(spline_entity) {
+            if let Ok((mut spline, _)) = splines.get_mut(spline_entity) {
                 if point_index < spline.control_points.len() {
                     // Intersect ray with the fixed drag plane
                     if let Some(new_pos) = ray_plane_intersect(

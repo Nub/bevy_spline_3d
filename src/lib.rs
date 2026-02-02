@@ -73,6 +73,7 @@ pub mod distribution;
 pub mod path_follow;
 pub mod road;
 pub mod spline;
+pub mod surface;
 
 #[cfg(feature = "editor")]
 pub mod editor;
@@ -82,6 +83,7 @@ pub use distribution::SplineDistributionPlugin;
 pub use path_follow::SplineFollowPlugin;
 pub use road::SplineRoadPlugin;
 pub use spline::SplinePlugin;
+pub use surface::SurfaceProjectionPlugin;
 
 #[cfg(feature = "editor")]
 pub use editor::SplineEditorPlugin;
@@ -102,10 +104,17 @@ pub mod prelude {
         RoadConnection, RoadEnd, RoadIntersection, SplineRoad, SplineRoadPlugin,
     };
     pub use crate::spline::{
-        ControlPointMarker, SelectedControlPoint, SelectedSpline, Spline, SplineEvaluator,
-        SplinePlugin, SplineType,
+        CachedSplineCurve, ControlPointMarker, ProjectedSplineCache, SelectedControlPoint,
+        SelectedSpline, Spline, SplineEvaluator, SplinePlugin, SplineType,
+        get_effective_control_points, get_effective_curve_points,
     };
 
     #[cfg(feature = "editor")]
-    pub use crate::editor::{CachedSplineCurve, EditorSettings, SelectionState, SplineEditorPlugin};
+    pub use crate::editor::{
+        EditorSettings, GizmoColors, GizmoSizes, GizmoVisuals, SelectionState, SplineEditorPlugin,
+    };
+
+    pub use crate::surface::{
+        ProjectionHit, ProjectionLayer, SurfaceProjection, SurfaceProjectionPlugin,
+    };
 }

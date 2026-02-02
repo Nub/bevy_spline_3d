@@ -5,11 +5,72 @@
 
 use bevy::{
     prelude::*,
-    mesh::PrimitiveTopology,
+    mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
 use crate::spline::Spline;
 use super::SplineRoad;
+
+/// Extract the cross-section profile from a segment mesh.
+/// Returns vertices at Z=0 (front edge) sorted by X coordinate.
+fn extract_profile(mesh: &Mesh) -> Option<Vec<Vec3>> {
+    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
+
+    let positions = match positions {
+        VertexAttributeValues::Float32x3(v) => v,
+        _ => return None,
+    };
+
+    // Find the minimum Z value (front edge)
+    let min_z = positions
+        .iter()
+        .map(|p| p[2])
+        .min_by(|a: &f32, b: &f32| a.partial_cmp(b).unwrap())?;
+
+    // Collect vertices at the front edge (within tolerance)
+    let tolerance = 0.001;
+    let mut profile: Vec<Vec3> = positions
+        .iter()
+        .filter(|p| (p[2] - min_z).abs() < tolerance)
+        .map(|p| Vec3::new(p[0], p[1], p[2]))
+        .collect();
+
+    // Sort by X coordinate for consistent ordering (leftmost first)
+    profile.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+
+    Some(profile)
+}
+
+/// Calculate the coordinate frame at a point on the spline.
+/// Returns (position, tangent, right, up).
+fn calculate_frame(spline: &Spline, t: f32, direction: f32) -> Option<(Vec3, Vec3, Vec3, Vec3)> {
+    let position = spline.evaluate(t)?;
+    let tangent = spline
+        .evaluate_tangent(t)
+        .map(|t| t.normalize_or_zero() * direction)
+        .unwrap_or(Vec3::Z);
+
+    // Build local coordinate frame (same as road mesh generation)
+    let up = Vec3::Y;
+    let right = tangent.cross(up).normalize_or_zero();
+    let corrected_up = right.cross(tangent).normalize_or_zero();
+
+    // Handle degenerate cases
+    let (right, corrected_up) = if right.length_squared() < 0.001 {
+        let right = tangent.cross(Vec3::X).normalize_or_zero();
+        let corrected_up = right.cross(tangent).normalize_or_zero();
+        (right, corrected_up)
+    } else {
+        (right, corrected_up)
+    };
+
+    Some((position, tangent, right, corrected_up))
+}
+
+/// Transform a local profile vertex to world space.
+fn transform_profile_vertex(local: Vec3, position: Vec3, right: Vec3, up: Vec3) -> Vec3 {
+    position + right * local.x + up * local.y
+}
 
 /// Which end of a road connects to an intersection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, Default)]
@@ -122,22 +183,28 @@ pub struct GeneratedIntersectionMesh {
 
 /// Information about a road endpoint for intersection generation.
 #[derive(Debug, Clone)]
-pub struct RoadEndpoint {
-    /// World position at the road end.
-    pub position: Vec3,
-    /// Tangent direction (pointing into the intersection).
-    #[allow(dead_code)]
-    pub tangent: Vec3,
-    /// Right vector (perpendicular to tangent, in road plane).
-    pub right: Vec3,
-    /// Half-width of the road.
-    pub half_width: f32,
-    /// The angle around the intersection center.
-    pub angle: f32,
+struct RoadEndpoint {
+    /// World position at the road end (center of the road).
+    position: Vec3,
+    /// Left edge position in world space (from road's perspective looking outward).
+    left_edge: Vec3,
+    /// Right edge position in world space (from road's perspective looking outward).
+    right_edge: Vec3,
+    /// The angle around the intersection center (for sorting).
+    angle: f32,
+}
+
+/// An edge point with its angle around the intersection center.
+#[derive(Debug, Clone)]
+struct EdgePoint {
+    position: Vec3,
+    angle: f32,
 }
 
 /// Generate intersection mesh where roads meet.
-pub fn generate_intersection_mesh(
+///
+/// The mesh connects the edge vertices of each road to form a seamless surface.
+fn generate_intersection_mesh(
     endpoints: &[RoadEndpoint],
     center: Vec3,
 ) -> Option<Mesh> {
@@ -145,65 +212,61 @@ pub fn generate_intersection_mesh(
         return None;
     }
 
-    let mut positions = Vec::new();
+    // Collect all edge points and sort by angle around center
+    let mut edge_points: Vec<EdgePoint> = Vec::new();
+
+    for endpoint in endpoints {
+        // Add both edge points
+        for &pos in &[endpoint.left_edge, endpoint.right_edge] {
+            let dir = pos - center;
+            let angle = dir.z.atan2(dir.x);
+            edge_points.push(EdgePoint { position: pos, angle });
+        }
+    }
+
+    // Sort by angle for consistent ordering around the intersection
+    edge_points.sort_by(|a, b| a.angle.partial_cmp(&b.angle).unwrap());
+
+    // Build mesh as a triangle fan from center
+    let mut positions: Vec<[f32; 3]> = Vec::new();
     let mut normals = Vec::new();
     let mut uvs = Vec::new();
-    let mut indices = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
 
-    // Add center vertex
+    // Add center vertex (index 0)
     positions.push([center.x, center.y, center.z]);
     normals.push([0.0, 1.0, 0.0]);
     uvs.push([0.5, 0.5]);
 
-    // Add edge vertices for each road (left and right edge points)
-    for endpoint in endpoints {
-        let left = endpoint.position + endpoint.right * endpoint.half_width;
-        let right = endpoint.position - endpoint.right * endpoint.half_width;
-
-        positions.push([left.x, left.y, left.z]);
-        normals.push([0.0, 1.0, 0.0]);
-
-        positions.push([right.x, right.y, right.z]);
+    // Add edge vertices in sorted angle order
+    for edge in &edge_points {
+        let pos = edge.position;
+        positions.push([pos.x, pos.y, pos.z]);
         normals.push([0.0, 1.0, 0.0]);
 
         // UV based on position relative to center
-        let left_dir = (left - center).normalize_or_zero();
-        let right_dir = (right - center).normalize_or_zero();
-        uvs.push([0.5 + left_dir.x * 0.5, 0.5 + left_dir.z * 0.5]);
-        uvs.push([0.5 + right_dir.x * 0.5, 0.5 + right_dir.z * 0.5]);
+        let dir = (pos - center).normalize_or_zero();
+        uvs.push([0.5 + dir.x * 0.5, 0.5 + dir.z * 0.5]);
     }
 
-    // Create triangles connecting center to edge vertices
-    // Vertices are: 0=center, then pairs of (left, right) for each road
-    // Use CCW winding for upward-facing normals
-    let num_roads = endpoints.len();
-    for i in 0..num_roads {
-        let right_idx = 2 + i * 2;
-        let next_left_idx = 1 + ((i + 1) % num_roads) * 2;
+    // Create triangle fan: center -> edge[i+1] -> edge[i]
+    // CW winding for upward-facing normals in Bevy
+    let num_edges = edge_points.len();
+    for i in 0..num_edges {
+        let curr_idx = (i + 1) as u32; // +1 because center is at index 0
+        let next_idx = ((i + 1) % num_edges + 1) as u32;
 
-        // Triangle from center to next left edge to current right edge
-        // This fills the gap between roads (CCW winding)
+        // Triangle: center -> next -> current (CW when viewed from above)
         indices.push(0);
-        indices.push(next_left_idx as u32);
-        indices.push(right_idx as u32);
-    }
-
-    // Also create triangles for the road entry areas
-    for i in 0..num_roads {
-        let left_idx = 1 + i * 2;
-        let right_idx = 2 + i * 2;
-
-        // Triangle from center to right edge to left edge (road entry, CCW winding)
-        indices.push(0);
-        indices.push(right_idx as u32);
-        indices.push(left_idx as u32);
+        indices.push(next_idx);
+        indices.push(curr_idx);
     }
 
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(bevy::mesh::Indices::U32(indices));
+    mesh.insert_indices(Indices::U32(indices));
 
     Some(mesh)
 }
@@ -249,7 +312,6 @@ pub fn update_intersection_meshes(
         // Gather endpoint information for each connected road
         let mut endpoints: Vec<RoadEndpoint> = Vec::new();
         let mut center = Vec3::ZERO;
-        let mut max_half_width: f32 = 2.0; // Default width
 
         for conn in &intersection.connections {
             let Ok(road) = roads.get(conn.road) else {
@@ -264,32 +326,46 @@ pub fn update_intersection_meshes(
                 continue;
             }
 
+            // Get the coordinate frame at the road endpoint
             let t = conn.end.t();
-            let Some(position) = spline.evaluate(t) else {
+            let Some((position, _tangent, right, up)) = calculate_frame(spline, t, conn.end.direction()) else {
                 continue;
             };
 
-            let tangent = spline
-                .evaluate_tangent(t)
-                .map(|t| t.normalize_or_zero() * conn.end.direction())
-                .unwrap_or(Vec3::Z);
+            // Extract the profile from the segment mesh
+            let profile = meshes
+                .get(&road.segment_mesh)
+                .and_then(|mesh| extract_profile(mesh));
 
-            // Calculate right vector (perpendicular to tangent in XZ plane)
-            let up = Vec3::Y;
-            let right = tangent.cross(up).normalize_or_zero();
+            // Calculate edge positions
+            let (left_edge, right_edge) = if let Some(profile) = profile {
+                if profile.len() >= 2 {
+                    // Profile is sorted by X: first is leftmost (most negative X), last is rightmost
+                    let left_local = profile.first().unwrap();
+                    let right_local = profile.last().unwrap();
 
-            // Get road width from segment mesh (estimate based on typical roads)
-            // TODO: Extract actual width from segment mesh
-            let half_width = 2.0;
-            max_half_width = max_half_width.max(half_width);
+                    // Transform to world space
+                    let left = transform_profile_vertex(*left_local, position, right, up);
+                    let right = transform_profile_vertex(*right_local, position, right, up);
+
+                    (left, right)
+                } else {
+                    // Fallback to default width
+                    let half_width = 2.0;
+                    (position + right * half_width, position - right * half_width)
+                }
+            } else {
+                // Fallback to default width
+                let half_width = 2.0;
+                (position + right * half_width, position - right * half_width)
+            };
 
             center += position;
 
             endpoints.push(RoadEndpoint {
                 position,
-                tangent,
-                right,
-                half_width,
+                left_edge,
+                right_edge,
                 angle: 0.0, // Will be calculated below
             });
         }

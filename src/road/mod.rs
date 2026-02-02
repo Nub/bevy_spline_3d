@@ -1,10 +1,13 @@
 mod intersection;
 mod mesh_gen;
+mod projection;
 
 pub use intersection::*;
 pub use mesh_gen::*;
+pub use projection::NeedsProjection;
 
 use bevy::prelude::*;
+use bevy::transform::TransformSystems;
 
 use crate::spline::SplinePlugin;
 
@@ -105,6 +108,14 @@ impl Plugin for SplineRoadPlugin {
                     intersection::cleanup_intersection_meshes,
                 ),
             );
+
+        // Run projection in PostUpdate after transform propagation
+        // to ensure GlobalTransform is up to date
+        app.add_systems(
+            PostUpdate,
+            projection::project_road_meshes
+                .after(TransformSystems::Propagate),
+        );
     }
 }
 
