@@ -1,5 +1,7 @@
+mod intersection;
 mod mesh_gen;
 
+pub use intersection::*;
 pub use mesh_gen::*;
 
 use bevy::prelude::*;
@@ -92,7 +94,17 @@ impl Plugin for SplineRoadPlugin {
         }
 
         app.register_type::<SplineRoad>()
-            .add_systems(Update, mesh_gen::update_road_meshes);
+            .register_type::<RoadIntersection>()
+            .register_type::<RoadEnd>()
+            .register_type::<RoadConnection>()
+            .add_systems(
+                Update,
+                (
+                    mesh_gen::update_road_meshes,
+                    intersection::update_intersection_meshes,
+                    intersection::cleanup_intersection_meshes,
+                ),
+            );
     }
 }
 

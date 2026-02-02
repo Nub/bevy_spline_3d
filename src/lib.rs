@@ -98,7 +98,8 @@ pub mod prelude {
         SplineFollower,
     };
     pub use crate::road::{
-        create_road_segment_mesh, GeneratedRoadMesh, SplineRoad, SplineRoadPlugin,
+        create_road_segment_mesh, GeneratedIntersectionMesh, GeneratedRoadMesh,
+        RoadConnection, RoadEnd, RoadIntersection, SplineRoad, SplineRoadPlugin,
     };
     pub use crate::spline::{
         ControlPointMarker, SelectedControlPoint, SelectedSpline, Spline, SplineEvaluator,
