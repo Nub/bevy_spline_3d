@@ -2,6 +2,7 @@ mod gizmos;
 mod input;
 mod selection;
 
+pub use gizmos::CachedSplineCurve;
 pub use selection::SelectionState;
 
 use bevy::{gizmos::config::GizmoConfigStore, prelude::*};
@@ -109,7 +110,9 @@ impl Plugin for SplineEditorPlugin {
                 (
                     // Config sync
                     sync_gizmo_config,
-                    // Gizmo rendering
+                    // Cache update (must run before rendering)
+                    gizmos::update_spline_cache,
+                    // Gizmo rendering (uses cached points)
                     gizmos::render_spline_curves,
                     gizmos::render_control_points,
                     gizmos::sync_control_point_entities,
@@ -120,7 +123,8 @@ impl Plugin for SplineEditorPlugin {
                     selection::handle_point_drag,
                     // Input
                     input::handle_hotkeys,
-                ),
+                )
+                    .chain(),
             );
     }
 }

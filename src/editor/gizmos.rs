@@ -4,17 +4,80 @@ use crate::spline::{ControlPointMarker, SelectedControlPoint, SelectedSpline, Sp
 
 use super::EditorSettings;
 
+/// Cached sampled points for a spline curve.
+///
+/// This component stores pre-computed sample points to avoid
+/// resampling the spline every frame during gizmo rendering.
+#[derive(Component, Default, Clone)]
+pub struct CachedSplineCurve {
+    /// The sampled points along the curve.
+    pub points: Vec<Vec3>,
+    /// The resolution used when sampling (to detect settings changes).
+    pub resolution: usize,
+}
+
+/// System to update cached spline curves when splines change.
+pub fn update_spline_cache(
+    mut commands: Commands,
+    settings: Res<EditorSettings>,
+    changed_splines: Query<(Entity, &Spline), Changed<Spline>>,
+    mut cached: Query<(Entity, &Spline, &mut CachedSplineCurve)>,
+    uncached: Query<(Entity, &Spline), Without<CachedSplineCurve>>,
+) {
+    // Add cache to splines that don't have one
+    for (entity, spline) in &uncached {
+        let points = if spline.is_valid() {
+            spline.sample(settings.curve_resolution)
+        } else {
+            Vec::new()
+        };
+        commands.entity(entity).insert(CachedSplineCurve {
+            points,
+            resolution: settings.curve_resolution,
+        });
+    }
+
+    // Update cache for changed splines
+    for (entity, spline) in &changed_splines {
+        if let Ok((_, _, mut cache)) = cached.get_mut(entity) {
+            cache.points = if spline.is_valid() {
+                spline.sample(settings.curve_resolution)
+            } else {
+                Vec::new()
+            };
+            cache.resolution = settings.curve_resolution;
+        }
+    }
+
+    // Update cache if resolution changed
+    if settings.is_changed() {
+        for (_, spline, mut cache) in &mut cached {
+            if cache.resolution != settings.curve_resolution {
+                cache.points = if spline.is_valid() {
+                    spline.sample(settings.curve_resolution)
+                } else {
+                    Vec::new()
+                };
+                cache.resolution = settings.curve_resolution;
+            }
+        }
+    }
+}
+
 /// System to render spline curves using Bevy gizmos.
+///
+/// Uses cached sample points from [`CachedSplineCurve`] to avoid
+/// resampling splines every frame.
 pub fn render_spline_curves(
     settings: Res<EditorSettings>,
-    splines: Query<(Entity, &Spline, Option<&SelectedSpline>)>,
+    splines: Query<(&Spline, Option<&SelectedSpline>, Option<&CachedSplineCurve>)>,
     mut gizmos: Gizmos,
 ) {
     if !settings.show_gizmos {
         return;
     }
 
-    for (_entity, spline, selected) in &splines {
+    for (spline, selected, cache) in &splines {
         if !spline.is_valid() {
             continue;
         }
@@ -25,14 +88,22 @@ pub fn render_spline_curves(
             settings.spline_color
         };
 
-        let points = spline.sample(settings.curve_resolution);
-        for window in points.windows(2) {
+        // Use cached points if available, otherwise sample (fallback for first frame)
+        let points: Vec<Vec3>;
+        let points_ref = if let Some(cache) = cache {
+            &cache.points
+        } else {
+            points = spline.sample(settings.curve_resolution);
+            &points
+        };
+
+        for window in points_ref.windows(2) {
             gizmos.line(window[0], window[1], color);
         }
 
         // For closed splines, connect last to first
-        if spline.closed && points.len() >= 2 {
-            gizmos.line(points[points.len() - 1], points[0], color);
+        if spline.closed && points_ref.len() >= 2 {
+            gizmos.line(points_ref[points_ref.len() - 1], points_ref[0], color);
         }
 
         // Render Bézier handle lines

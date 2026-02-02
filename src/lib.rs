@@ -106,5 +106,5 @@ pub mod prelude {
     };
 
     #[cfg(feature = "editor")]
-    pub use crate::editor::{EditorSettings, SelectionState, SplineEditorPlugin};
+    pub use crate::editor::{CachedSplineCurve, EditorSettings, SelectionState, SplineEditorPlugin};
 }
