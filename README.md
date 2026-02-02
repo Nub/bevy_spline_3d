@@ -1,8 +1,6 @@
 # bevy_spline_3d
 
-A Bevy plugin for 3D spline editing with interactive gizmos.
-
-![Screenshot](docs/image.png)
+A Bevy plugin for 3D spline editing with interactive gizmos. ![Screenshot](docs/image.png)
 
 ## Features
 
