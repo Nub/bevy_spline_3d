@@ -73,8 +73,8 @@ pub fn update_distributions(
             // Despawn old instances
             if let Some(state) = state {
                 for &instance_entity in &state.instances {
-                    if let Some(entity_commands) = commands.get_entity(instance_entity) {
-                        entity_commands.despawn_recursive();
+                    if let Ok(mut entity_commands) = commands.get_entity(instance_entity) {
+                        entity_commands.despawn();
                     }
                 }
             }
@@ -94,7 +94,7 @@ pub fn update_distributions(
                         distribution: dist_entity,
                         index: i,
                     },
-                    Visibility::Inherited,
+                    Visibility::default(),
                 ));
 
                 // Clone visual components from source
@@ -268,8 +268,8 @@ pub fn cleanup_distributions(
         // Try to get state for cleanup
         if let Ok(state) = states.get(removed_dist) {
             for &instance_entity in &state.instances {
-                if let Some(entity_commands) = commands.get_entity(instance_entity) {
-                    entity_commands.despawn_recursive();
+                if let Ok(mut entity_commands) = commands.get_entity(instance_entity) {
+                    entity_commands.despawn();
                 }
             }
         }
@@ -278,7 +278,7 @@ pub fn cleanup_distributions(
         // (in case state wasn't available)
         for (entity, instance) in &instances {
             if instance.distribution == removed_dist {
-                commands.entity(entity).despawn_recursive();
+                commands.entity(entity).despawn();
             }
         }
     }

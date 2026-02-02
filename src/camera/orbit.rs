@@ -59,8 +59,8 @@ pub fn orbit_camera_input(
     mut cameras: Query<(&mut OrbitCamera, &mut Transform)>,
     camera_mode: Res<CameraMode>,
     mouse: Res<ButtonInput<MouseButton>>,
-    mut motion: EventReader<MouseMotion>,
-    mut scroll: EventReader<bevy::input::mouse::MouseWheel>,
+    mut motion: MessageReader<MouseMotion>,
+    mut scroll: MessageReader<bevy::input::mouse::MouseWheel>,
     keyboard: Res<ButtonInput<KeyCode>>,
 ) {
     if *camera_mode != CameraMode::Orbit {
@@ -69,7 +69,7 @@ pub fn orbit_camera_input(
         return;
     }
 
-    let Ok((mut orbit, mut transform)) = cameras.get_single_mut() else {
+    let Ok((mut orbit, mut transform)) = cameras.single_mut() else {
         return;
     };
 

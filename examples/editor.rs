@@ -42,9 +42,10 @@ fn setup(mut commands: Commands) {
     ));
 
     // Lighting
-    commands.insert_resource(AmbientLight {
+    commands.spawn(AmbientLight {
         color: Color::WHITE,
         brightness: 300.0,
+        affects_lightmapped_meshes: true,
     });
 
     commands.spawn((

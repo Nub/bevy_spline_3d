@@ -41,7 +41,7 @@ pub fn fly_camera_input(
     camera_mode: Res<CameraMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut motion: EventReader<MouseMotion>,
+    mut motion: MessageReader<MouseMotion>,
     time: Res<Time>,
 ) {
     if *camera_mode != CameraMode::Fly {
@@ -49,7 +49,7 @@ pub fn fly_camera_input(
         return;
     }
 
-    let Ok((mut fly, mut transform)) = cameras.get_single_mut() else {
+    let Ok((mut fly, mut transform)) = cameras.single_mut() else {
         return;
     };
 

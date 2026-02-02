@@ -50,7 +50,7 @@ fn sync_orbit_from_transform(
         return;
     }
 
-    let Ok((mut orbit, transform)) = cameras.get_single_mut() else {
+    let Ok((mut orbit, transform)) = cameras.single_mut() else {
         return;
     };
 
@@ -71,7 +71,7 @@ fn sync_fly_from_transform(mode: Res<CameraMode>, mut cameras: Query<(&mut FlyCa
         return;
     }
 
-    let Ok((mut fly, transform)) = cameras.get_single_mut() else {
+    let Ok((mut fly, transform)) = cameras.single_mut() else {
         return;
     };
 

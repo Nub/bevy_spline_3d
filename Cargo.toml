@@ -12,7 +12,7 @@ default = ["editor"]
 editor = []  # Enable interactive editor and gizmos
 
 [dependencies]
-bevy = "0.15"
+bevy = "0.18"
 
 [[example]]
 name = "editor"

@@ -1,6 +1,6 @@
 use bevy::{
     prelude::*,
-    render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
+    mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
 use crate::spline::Spline;
@@ -108,7 +108,7 @@ fn extract_front_profile(mesh: &Mesh) -> Option<Vec<(Vec3, Vec2)>> {
     let min_z = positions
         .iter()
         .map(|p| p[2])
-        .min_by(|a, b| a.partial_cmp(b).unwrap())?;
+        .min_by(|a: &f32, b: &f32| a.partial_cmp(b).unwrap())?;
 
     // Collect vertices at the front edge (within tolerance)
     let tolerance = 0.001;
@@ -268,7 +268,7 @@ pub fn update_road_meshes(
         // Find or create the mesh entity
         let mut found_mesh_entity = None;
         if let Ok(children) = road_mesh_children.get(road_entity) {
-            for &child in children.iter() {
+            for child in children.iter() {
                 if existing_road_meshes.get(child).is_ok() {
                     found_mesh_entity = Some(child);
                     break;
@@ -288,7 +288,7 @@ pub fn update_road_meshes(
             let mut entity_commands = commands.spawn((
                 Mesh3d(mesh_handle),
                 Transform::default(),
-                Visibility::Inherited,
+                Visibility::default(),
                 GeneratedRoadMesh { road: road_entity },
             ));
 

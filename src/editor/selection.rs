@@ -23,7 +23,7 @@ pub struct SelectionState {
 pub fn pick_control_points(
     settings: Res<EditorSettings>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     splines: Query<(Entity, &Spline)>,
     mut selection_state: ResMut<SelectionState>,
 ) {
@@ -36,7 +36,7 @@ pub fn pick_control_points(
         return;
     }
 
-    let Ok(window) = windows.get_single() else {
+    let Ok(window) = windows.single() else {
         return;
     };
 
@@ -45,7 +45,7 @@ pub fn pick_control_points(
         return;
     };
 
-    let Ok((camera, camera_transform)) = cameras.get_single() else {
+    let Ok((camera, camera_transform)) = cameras.single() else {
         return;
     };
 
@@ -58,7 +58,8 @@ pub fn pick_control_points(
     for (entity, spline) in &splines {
         for (i, &point) in spline.control_points.iter().enumerate() {
             // Simple sphere-ray intersection
-            if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, point, settings.point_radius * 2.0) {
+            let pick_radius = settings.point_radius * 2.0;
+            if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, point, pick_radius) {
                 if closest.is_none() || dist < closest.unwrap().2 {
                     closest = Some((entity, i, dist));
                 }
@@ -154,7 +155,7 @@ pub fn handle_point_drag(
     settings: Res<EditorSettings>,
     mut selection_state: ResMut<SelectionState>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut splines: Query<&mut Spline>,
 ) {
     if !settings.enabled {
@@ -167,7 +168,7 @@ pub fn handle_point_drag(
             selection_state.dragging = true;
             selection_state.dragged_points = vec![(spline_entity, point_index)];
 
-            if let Ok((_, camera_transform)) = cameras.get_single() {
+            if let Ok((_, camera_transform)) = cameras.single() {
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
 
                 // Store initial plane point for consistent dragging
@@ -188,13 +189,13 @@ pub fn handle_point_drag(
 
     // Continue drag - use stored dragged_points, not the component query
     if selection_state.dragging && !selection_state.dragged_points.is_empty() {
-        let Ok(window) = windows.get_single() else {
+        let Ok(window) = windows.single() else {
             return;
         };
         let Some(cursor_pos) = window.cursor_position() else {
             return;
         };
-        let Ok((camera, camera_transform)) = cameras.get_single() else {
+        let Ok((camera, camera_transform)) = cameras.single() else {
             return;
         };
         let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {

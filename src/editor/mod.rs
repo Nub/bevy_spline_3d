@@ -72,7 +72,7 @@ fn sync_gizmo_config(
     mut config_store: ResMut<GizmoConfigStore>,
 ) {
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
-    config.line_width = settings.line_width;
+    config.line.width = settings.line_width;
 }
 
 /// Plugin that adds interactive spline editing functionality.
