@@ -3,6 +3,7 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
+use crate::geometry::CoordinateFrame;
 use crate::spline::Spline;
 use crate::surface::SurfaceProjection;
 
@@ -90,20 +91,36 @@ pub fn create_road_segment_mesh(
     mesh
 }
 
-/// Extract the cross-section profile from a segment mesh.
-/// Returns vertices at Z=0 (front edge) sorted by X coordinate.
-fn extract_front_profile(mesh: &Mesh) -> Option<Vec<(Vec3, Vec2)>> {
-    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
-    let uvs = mesh.attribute(Mesh::ATTRIBUTE_UV_0);
+/// A vertex in a mesh cross-section profile.
+#[derive(Debug, Clone)]
+pub struct ProfileVertex {
+    /// The vertex position.
+    pub position: Vec3,
+    /// The UV coordinates (if available).
+    pub uv: Option<Vec2>,
+}
 
+/// Extract the cross-section profile from a segment mesh.
+///
+/// Returns vertices at the front edge (minimum Z) sorted by X coordinate.
+/// If `include_uvs` is true, UV coordinates are extracted when available.
+pub fn extract_mesh_profile(mesh: &Mesh, include_uvs: bool) -> Option<Vec<ProfileVertex>> {
+    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
     let positions = match positions {
         VertexAttributeValues::Float32x3(v) => v,
         _ => return None,
     };
 
-    let uvs: Vec<[f32; 2]> = match uvs {
-        Some(VertexAttributeValues::Float32x2(v)) => v.clone(),
-        _ => vec![[0.0, 0.0]; positions.len()],
+    let uvs: Option<&Vec<[f32; 2]>> = if include_uvs {
+        mesh.attribute(Mesh::ATTRIBUTE_UV_0).and_then(|attr| {
+            if let VertexAttributeValues::Float32x2(v) = attr {
+                Some(v)
+            } else {
+                None
+            }
+        })
+    } else {
+        None
     };
 
     // Find the minimum Z value (front edge)
@@ -114,15 +131,18 @@ fn extract_front_profile(mesh: &Mesh) -> Option<Vec<(Vec3, Vec2)>> {
 
     // Collect vertices at the front edge (within tolerance)
     let tolerance = 0.001;
-    let mut profile: Vec<(Vec3, Vec2)> = positions
+    let mut profile: Vec<ProfileVertex> = positions
         .iter()
-        .zip(uvs.iter())
-        .filter(|(p, _)| (p[2] - min_z).abs() < tolerance)
-        .map(|(p, uv)| (Vec3::new(p[0], p[1], p[2]), Vec2::new(uv[0], uv[1])))
+        .enumerate()
+        .filter(|(_, p)| (p[2] - min_z).abs() < tolerance)
+        .map(|(i, p)| ProfileVertex {
+            position: Vec3::new(p[0], p[1], p[2]),
+            uv: uvs.map(|uvs| Vec2::new(uvs[i][0], uvs[i][1])),
+        })
         .collect();
 
     // Sort by X coordinate for consistent ordering
-    profile.sort_by(|a, b| a.0.x.partial_cmp(&b.0.x).unwrap());
+    profile.sort_by(|a, b| a.position.x.partial_cmp(&b.position.x).unwrap());
 
     Some(profile)
 }
@@ -134,7 +154,7 @@ pub fn generate_road_mesh(
     segments: usize,
     uv_tile_length: f32,
 ) -> Option<Mesh> {
-    let profile = extract_front_profile(segment_mesh)?;
+    let profile = extract_mesh_profile(segment_mesh, true)?;
     if profile.is_empty() {
         return None;
     }
@@ -157,33 +177,21 @@ pub fn generate_road_mesh(
             .unwrap_or(Vec3::Z);
 
         // Build local coordinate frame
-        let up = Vec3::Y;
-        let right = tangent.cross(up).normalize_or_zero();
-        let corrected_up = right.cross(tangent).normalize_or_zero();
-
-        // Handle degenerate cases
-        let (right, corrected_up) = if right.length_squared() < 0.001 {
-            // Tangent is parallel to up, use a different reference
-            let right = tangent.cross(Vec3::X).normalize_or_zero();
-            let corrected_up = right.cross(tangent).normalize_or_zero();
-            (right, corrected_up)
-        } else {
-            (right, corrected_up)
-        };
+        let frame = CoordinateFrame::from_tangent(tangent);
 
         // Transform each profile vertex
-        for (local_pos, local_uv) in &profile {
-            // Transform from local to world space
-            // local X -> right, local Y -> corrected_up, local Z -> tangent
-            let world_offset = right * local_pos.x + corrected_up * local_pos.y;
+        for vertex in &profile {
+            // Transform from local to world space using coordinate frame
+            let world_offset = frame.transform_profile_point(vertex.position.x, vertex.position.y);
             let world_pos = position + world_offset;
 
             positions.push([world_pos.x, world_pos.y, world_pos.z]);
-            normals.push([corrected_up.x, corrected_up.y, corrected_up.z]);
+            normals.push([frame.up.x, frame.up.y, frame.up.z]);
 
             // UV: X from profile, Y from spline progress
             let v = t * uv_tile_length;
-            uvs.push([local_uv.x, v]);
+            let u = vertex.uv.map(|uv| uv.x).unwrap_or(0.0);
+            uvs.push([u, v]);
         }
     }
 

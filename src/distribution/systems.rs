@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
-use crate::spline::Spline;
+use crate::geometry::CoordinateFrame;
+use crate::spline::{ArcLengthTable, Spline};
 use crate::surface::SurfaceProjection;
 
 use super::{
@@ -144,79 +145,10 @@ pub fn update_distributions(
     }
 }
 
-/// Compute arc-length lookup table for a spline.
-/// Returns a vector of (t, cumulative_length) pairs.
-fn compute_arc_length_table(spline: &Spline) -> Vec<(f32, f32)> {
-    let mut table = Vec::with_capacity(ARC_LENGTH_SAMPLES + 1);
-    let mut cumulative_length = 0.0;
-    let mut prev_point = spline.evaluate(0.0).unwrap_or(Vec3::ZERO);
-
-    table.push((0.0, 0.0));
-
-    for i in 1..=ARC_LENGTH_SAMPLES {
-        let t = i as f32 / ARC_LENGTH_SAMPLES as f32;
-        let point = spline.evaluate(t).unwrap_or(prev_point);
-        cumulative_length += (point - prev_point).length();
-        table.push((t, cumulative_length));
-        prev_point = point;
-    }
-
-    table
-}
-
-/// Find the t parameter for a given arc length using the lookup table.
-fn arc_length_to_t(table: &[(f32, f32)], target_length: f32) -> f32 {
-    if table.is_empty() {
-        return 0.0;
-    }
-
-    let total_length = table.last().map(|(_, l)| *l).unwrap_or(0.0);
-    if total_length <= 0.0 {
-        return 0.0;
-    }
-
-    // Clamp target length
-    let target = target_length.clamp(0.0, total_length);
-
-    // Binary search for the segment containing target_length
-    let idx = table
-        .binary_search_by(|(_, l)| l.partial_cmp(&target).unwrap_or(std::cmp::Ordering::Equal))
-        .unwrap_or_else(|i| i.saturating_sub(1));
-
-    if idx >= table.len() - 1 {
-        return 1.0;
-    }
-
-    let (t0, l0) = table[idx];
-    let (t1, l1) = table[idx + 1];
-
-    if (l1 - l0).abs() < 1e-6 {
-        return t0;
-    }
-
-    // Linear interpolation within segment
-    let alpha = (target - l0) / (l1 - l0);
-    t0 + alpha * (t1 - t0)
-}
-
 /// Compute t values for uniform distribution.
 fn compute_uniform_t_values(spline: &Spline, count: usize) -> Vec<f32> {
-    if count == 0 {
-        return Vec::new();
-    }
-    if count == 1 {
-        return vec![0.5];
-    }
-
-    let table = compute_arc_length_table(spline);
-    let total_length = table.last().map(|(_, l)| *l).unwrap_or(0.0);
-
-    (0..count)
-        .map(|i| {
-            let target_length = (i as f32 / (count - 1) as f32) * total_length;
-            arc_length_to_t(&table, target_length)
-        })
-        .collect()
+    let table = ArcLengthTable::compute(spline, ARC_LENGTH_SAMPLES);
+    table.uniform_t_values(count)
 }
 
 /// Compute t values for parametric distribution.
@@ -241,17 +173,9 @@ fn calculate_transform(spline: &Spline, t: f32, distribution: &SplineDistributio
         DistributionOrientation::PositionOnly => Quat::IDENTITY,
         DistributionOrientation::AlignToTangent { up } => {
             if let Some(tangent) = spline.evaluate_tangent(t) {
-                let tangent = tangent.normalize_or_zero();
-                if tangent.length_squared() > 0.001 {
-                    // Create rotation that points -Z along tangent (forward in Bevy)
-                    let forward = -tangent;
-                    let right = up.cross(forward).normalize_or_zero();
-                    if right.length_squared() > 0.001 {
-                        let corrected_up = forward.cross(right).normalize();
-                        Quat::from_mat3(&Mat3::from_cols(right, corrected_up, forward))
-                    } else {
-                        Quat::IDENTITY
-                    }
+                let frame = CoordinateFrame::from_tangent_with_up(tangent, up);
+                if frame.is_valid() {
+                    frame.to_rotation()
                 } else {
                     Quat::IDENTITY
                 }

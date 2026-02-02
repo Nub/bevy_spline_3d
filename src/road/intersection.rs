@@ -5,71 +5,24 @@
 
 use bevy::{
     prelude::*,
-    mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
+    mesh::{Indices, PrimitiveTopology},
 };
 
+use crate::geometry::CoordinateFrame;
 use crate::spline::Spline;
-use super::SplineRoad;
-
-/// Extract the cross-section profile from a segment mesh.
-/// Returns vertices at Z=0 (front edge) sorted by X coordinate.
-fn extract_profile(mesh: &Mesh) -> Option<Vec<Vec3>> {
-    let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;
-
-    let positions = match positions {
-        VertexAttributeValues::Float32x3(v) => v,
-        _ => return None,
-    };
-
-    // Find the minimum Z value (front edge)
-    let min_z = positions
-        .iter()
-        .map(|p| p[2])
-        .min_by(|a: &f32, b: &f32| a.partial_cmp(b).unwrap())?;
-
-    // Collect vertices at the front edge (within tolerance)
-    let tolerance = 0.001;
-    let mut profile: Vec<Vec3> = positions
-        .iter()
-        .filter(|p| (p[2] - min_z).abs() < tolerance)
-        .map(|p| Vec3::new(p[0], p[1], p[2]))
-        .collect();
-
-    // Sort by X coordinate for consistent ordering (leftmost first)
-    profile.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
-
-    Some(profile)
-}
+use super::{extract_mesh_profile, SplineRoad};
 
 /// Calculate the coordinate frame at a point on the spline.
-/// Returns (position, tangent, right, up).
-fn calculate_frame(spline: &Spline, t: f32, direction: f32) -> Option<(Vec3, Vec3, Vec3, Vec3)> {
+/// Returns (position, frame) where frame contains tangent, right, and up vectors.
+fn calculate_frame(spline: &Spline, t: f32, direction: f32) -> Option<(Vec3, CoordinateFrame)> {
     let position = spline.evaluate(t)?;
     let tangent = spline
         .evaluate_tangent(t)
         .map(|t| t.normalize_or_zero() * direction)
         .unwrap_or(Vec3::Z);
 
-    // Build local coordinate frame (same as road mesh generation)
-    let up = Vec3::Y;
-    let right = tangent.cross(up).normalize_or_zero();
-    let corrected_up = right.cross(tangent).normalize_or_zero();
-
-    // Handle degenerate cases
-    let (right, corrected_up) = if right.length_squared() < 0.001 {
-        let right = tangent.cross(Vec3::X).normalize_or_zero();
-        let corrected_up = right.cross(tangent).normalize_or_zero();
-        (right, corrected_up)
-    } else {
-        (right, corrected_up)
-    };
-
-    Some((position, tangent, right, corrected_up))
-}
-
-/// Transform a local profile vertex to world space.
-fn transform_profile_vertex(local: Vec3, position: Vec3, right: Vec3, up: Vec3) -> Vec3 {
-    position + right * local.x + up * local.y
+    let frame = CoordinateFrame::from_tangent(tangent);
+    Some((position, frame))
 }
 
 /// Which end of a road connects to an intersection.
@@ -328,36 +281,36 @@ pub fn update_intersection_meshes(
 
             // Get the coordinate frame at the road endpoint
             let t = conn.end.t();
-            let Some((position, _tangent, right, up)) = calculate_frame(spline, t, conn.end.direction()) else {
+            let Some((position, frame)) = calculate_frame(spline, t, conn.end.direction()) else {
                 continue;
             };
 
             // Extract the profile from the segment mesh
             let profile = meshes
                 .get(&road.segment_mesh)
-                .and_then(|mesh| extract_profile(mesh));
+                .and_then(|mesh| extract_mesh_profile(mesh, false));
 
             // Calculate edge positions
             let (left_edge, right_edge) = if let Some(profile) = profile {
                 if profile.len() >= 2 {
                     // Profile is sorted by X: first is leftmost (most negative X), last is rightmost
-                    let left_local = profile.first().unwrap();
-                    let right_local = profile.last().unwrap();
+                    let left_local = &profile.first().unwrap().position;
+                    let right_local = &profile.last().unwrap().position;
 
-                    // Transform to world space
-                    let left = transform_profile_vertex(*left_local, position, right, up);
-                    let right = transform_profile_vertex(*right_local, position, right, up);
+                    // Transform to world space using coordinate frame
+                    let left = position + frame.transform_profile_point(left_local.x, left_local.y);
+                    let right_pos = position + frame.transform_profile_point(right_local.x, right_local.y);
 
-                    (left, right)
+                    (left, right_pos)
                 } else {
                     // Fallback to default width
                     let half_width = 2.0;
-                    (position + right * half_width, position - right * half_width)
+                    (position + frame.right * half_width, position - frame.right * half_width)
                 }
             } else {
                 // Fallback to default width
                 let half_width = 2.0;
-                (position + right * half_width, position - right * half_width)
+                (position + frame.right * half_width, position - frame.right * half_width)
             };
 
             center += position;

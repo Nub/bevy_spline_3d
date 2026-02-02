@@ -3,9 +3,15 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::surface::SurfaceProjection;
+use crate::surface::{cast_projection_ray, SurfaceProjection};
 
 use super::{DistributedInstance, SplineDistribution};
+
+/// Run condition that checks if avian3d physics is available.
+/// We check for the Gravity resource which is always present when PhysicsPlugins is added.
+pub fn physics_available(gravity: Option<Res<Gravity>>) -> bool {
+    gravity.is_some()
+}
 
 /// Marker component for instances that need projection.
 /// Added when instances are created/updated, removed after projection.
@@ -30,27 +36,8 @@ pub fn project_distributed_instances(
             continue;
         }
 
-        let position = transform.translation;
-        let ray_origin = position + Vec3::Y * config.ray_origin_offset;
-        let ray_direction = Dir3::NEG_Y;
-
-        let filter = if let Some(layers) = config.collision_layers {
-            SpatialQueryFilter::default().with_mask(layers)
-        } else {
-            SpatialQueryFilter::default()
-        };
-
-        if let Some(hit) = spatial_query.cast_ray(
-            ray_origin,
-            ray_direction,
-            config.max_distance,
-            true,
-            &filter,
-        ) {
-            let hit_position = ray_origin + *ray_direction * hit.distance;
-            // Offset along the surface normal to prevent z-fighting
-            let adjusted_position = hit_position + hit.normal * config.normal_offset;
-            transform.translation = adjusted_position;
+        if let Some(hit) = cast_projection_ray(&spatial_query, transform.translation, config) {
+            transform.translation = hit.with_normal_offset(config.normal_offset);
 
             // Optionally align rotation to surface normal
             if config.align_to_normal {

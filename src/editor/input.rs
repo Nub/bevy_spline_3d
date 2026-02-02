@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::spline::{ControlPointMarker, SelectedControlPoint, SelectedSpline, Spline, SplineType};
 
-use super::{selection::SelectionState, EditorSettings};
+use super::{selection::{clear_all_selections, SelectionState}, EditorSettings};
 
 /// System to handle keyboard shortcuts for spline editing.
 pub fn handle_hotkeys(
@@ -44,12 +44,11 @@ pub fn handle_hotkeys(
 
     // Escape - Deselect all
     if keyboard.just_pressed(KeyCode::Escape) {
-        for (entity, _) in &splines {
-            commands.entity(entity).remove::<SelectedSpline>();
-        }
-        for (entity, _) in &selected_points {
-            commands.entity(entity).remove::<SelectedControlPoint>();
-        }
+        clear_all_selections(
+            &mut commands,
+            splines.iter().map(|(e, _)| e),
+            selected_points.iter().map(|(e, _)| e),
+        );
     }
 }
 

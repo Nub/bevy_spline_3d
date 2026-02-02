@@ -110,11 +110,13 @@ impl Plugin for SplineRoadPlugin {
             );
 
         // Run projection in PostUpdate after transform propagation
-        // to ensure GlobalTransform is up to date
+        // to ensure GlobalTransform is up to date.
+        // Only runs when avian3d physics is available.
         app.add_systems(
             PostUpdate,
             projection::project_road_meshes
-                .after(TransformSystems::Propagate),
+                .after(TransformSystems::Propagate)
+                .run_if(projection::physics_available),
         );
     }
 }

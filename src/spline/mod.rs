@@ -1,7 +1,9 @@
+mod arc_length;
 mod components;
 mod projection;
 mod types;
 
+pub use arc_length::{approximate_arc_length, ArcLengthTable, DEFAULT_ARC_LENGTH_SAMPLES};
 pub use components::*;
 pub use projection::{
     get_effective_control_points, get_effective_curve_points, project_spline_point,

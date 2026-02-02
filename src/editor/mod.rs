@@ -200,11 +200,13 @@ impl Plugin for SplineEditorPlugin {
 
         // Add spline projection visualization
         use bevy::transform::TransformSystems;
-        // Run projection after physics and transform propagation
+        // Run projection after physics and transform propagation.
+        // Only runs when avian3d physics is available.
         app.add_systems(
             PostUpdate,
             gizmos::project_spline_visualization
-                .after(TransformSystems::Propagate),
+                .after(TransformSystems::Propagate)
+                .run_if(gizmos::physics_available),
         );
     }
 }

@@ -22,6 +22,22 @@ pub struct SelectionState {
     pub drag_plane_point: Vec3,
 }
 
+/// Clear all spline and control point selections.
+///
+/// This is a helper function to reduce duplication in selection handling.
+pub fn clear_all_selections(
+    commands: &mut Commands,
+    selected_splines: impl IntoIterator<Item = Entity>,
+    selected_points: impl IntoIterator<Item = Entity>,
+) {
+    for entity in selected_splines {
+        commands.entity(entity).remove::<SelectedSpline>();
+    }
+    for entity in selected_points {
+        commands.entity(entity).remove::<SelectedControlPoint>();
+    }
+}
+
 /// System to handle mouse picking of control points.
 /// Uses projected positions when surface projection is enabled for the spline.
 pub fn pick_control_points(
@@ -128,12 +144,11 @@ pub fn handle_selection_click(
         // Select this spline
         if !shift_held {
             // Clear other selections
-            for entity in &selected_splines {
-                commands.entity(entity).remove::<SelectedSpline>();
-            }
-            for entity in &selected_points {
-                commands.entity(entity).remove::<SelectedControlPoint>();
-            }
+            clear_all_selections(
+                &mut commands,
+                selected_splines.iter(),
+                selected_points.iter(),
+            );
         }
 
         // Add selection to spline
@@ -147,12 +162,11 @@ pub fn handle_selection_click(
         }
     } else if !shift_held {
         // Clicked on nothing, clear selection
-        for entity in &selected_splines {
-            commands.entity(entity).remove::<SelectedSpline>();
-        }
-        for entity in &selected_points {
-            commands.entity(entity).remove::<SelectedControlPoint>();
-        }
+        clear_all_selections(
+            &mut commands,
+            selected_splines.iter(),
+            selected_points.iter(),
+        );
     }
 }
 

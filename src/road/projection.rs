@@ -7,9 +7,15 @@ use bevy::{
     prelude::*,
 };
 
-use crate::surface::SurfaceProjection;
+use crate::surface::{create_projection_filter, SurfaceProjection};
 
 use super::{GeneratedRoadMesh, SplineRoad};
+
+/// Run condition that checks if avian3d physics is available.
+/// We check for the Gravity resource which is always present when PhysicsPlugins is added.
+pub fn physics_available(gravity: Option<Res<Gravity>>) -> bool {
+    gravity.is_some()
+}
 
 /// Marker component to track when a road mesh needs projection.
 /// Added by mesh generation, removed after projection is applied.
@@ -105,11 +111,7 @@ fn project_mesh_vertices(
         return None;
     }
 
-    let filter = if let Some(layers) = config.collision_layers {
-        SpatialQueryFilter::default().with_mask(layers)
-    } else {
-        SpatialQueryFilter::default()
-    };
+    let filter = create_projection_filter(config);
 
     // Compute inverse transform for converting world -> local
     let inverse_affine = transform.compute_affine().inverse();

@@ -14,6 +14,12 @@ use crate::surface::SurfaceProjection;
 
 use super::EditorSettings;
 
+/// Run condition that checks if avian3d physics is available.
+/// We check for the Gravity resource which is always present when PhysicsPlugins is added.
+pub fn physics_available(gravity: Option<Res<Gravity>>) -> bool {
+    gravity.is_some()
+}
+
 /// System to update cached spline curves when splines change.
 pub fn update_spline_cache(
     mut commands: Commands,

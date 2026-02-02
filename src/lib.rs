@@ -70,6 +70,7 @@
 
 pub mod camera;
 pub mod distribution;
+pub mod geometry;
 pub mod path_follow;
 pub mod road;
 pub mod spline;
@@ -115,6 +116,9 @@ pub mod prelude {
     };
 
     pub use crate::surface::{
-        ProjectionHit, ProjectionLayer, SurfaceProjection, SurfaceProjectionPlugin,
+        ProjectionHit, ProjectionLayer, RawProjectionHit, SurfaceProjection,
+        SurfaceProjectionPlugin, cast_projection_ray, create_projection_filter,
     };
+
+    pub use crate::geometry::CoordinateFrame;
 }

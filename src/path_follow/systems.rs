@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
-use crate::spline::Spline;
+use crate::geometry::CoordinateFrame;
+use crate::spline::{approximate_arc_length, Spline};
 
 use super::{FollowerEvent, FollowerEventKind, FollowerState, LoopMode, SplineFollower};
 
@@ -34,7 +35,7 @@ pub fn update_spline_followers(
         // Calculate t delta based on speed mode
         let dt = if follower.constant_speed {
             // Arc-length parameterization for constant speed
-            let total_length = approximate_arc_length(spline);
+            let total_length = approximate_arc_length(spline, ARC_LENGTH_SAMPLES);
             if total_length > 0.0 {
                 (follower.speed * delta) / total_length
             } else {
@@ -129,38 +130,11 @@ fn calculate_orientation(spline: &Spline, t: f32, up: Vec3, direction: f32) -> Q
         return Quat::IDENTITY;
     };
 
-    let tangent = tangent.normalize_or_zero();
-    if tangent.length_squared() < 0.001 {
+    let frame = CoordinateFrame::from_tangent_with_up(tangent, up);
+    if !frame.is_valid() {
         return Quat::IDENTITY;
     }
 
-    // Apply direction (flip tangent if going backwards)
-    let forward = if direction >= 0.0 { tangent } else { -tangent };
-
-    // Build rotation matrix
-    let right = up.cross(forward).normalize_or_zero();
-    if right.length_squared() < 0.001 {
-        // Forward is parallel to up, use different reference
-        let right = Vec3::X.cross(forward).normalize_or_zero();
-        let corrected_up = forward.cross(right).normalize_or_zero();
-        Quat::from_mat3(&Mat3::from_cols(right, corrected_up, forward))
-    } else {
-        let corrected_up = forward.cross(right).normalize_or_zero();
-        Quat::from_mat3(&Mat3::from_cols(right, corrected_up, forward))
-    }
+    frame.to_rotation_with_direction(direction)
 }
 
-/// Approximate the total arc length of a spline.
-fn approximate_arc_length(spline: &Spline) -> f32 {
-    let mut length = 0.0;
-    let mut prev_point = spline.evaluate(0.0).unwrap_or(Vec3::ZERO);
-
-    for i in 1..=ARC_LENGTH_SAMPLES {
-        let t = i as f32 / ARC_LENGTH_SAMPLES as f32;
-        let point = spline.evaluate(t).unwrap_or(prev_point);
-        length += (point - prev_point).length();
-        prev_point = point;
-    }
-
-    length
-}
