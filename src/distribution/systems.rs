@@ -27,14 +27,14 @@ pub fn hide_source_entities(
 pub fn update_distributions(
     mut commands: Commands,
     distributions: Query<(Entity, &SplineDistribution, Option<&DistributionState>)>,
-    splines: Query<&Spline>,
+    splines: Query<(&Spline, &GlobalTransform)>,
     sources: Query<(
         Option<&Mesh3d>,
         Option<&MeshMaterial3d<StandardMaterial>>,
         Option<&Children>,
     )>,
     mut instances: Query<(&mut Transform, &DistributedInstance)>,
-    changed_splines: Query<Entity, Changed<Spline>>,
+    changed_splines: Query<Entity, Or<(Changed<Spline>, Changed<GlobalTransform>)>>,
     changed_distributions: Query<Entity, Changed<SplineDistribution>>,
     projection_query: Query<(), With<SurfaceProjection>>,
 ) {
@@ -49,7 +49,7 @@ pub fn update_distributions(
             continue;
         }
 
-        let Ok(spline) = splines.get(distribution.spline) else {
+        let Ok((spline, spline_transform)) = splines.get(distribution.spline) else {
             continue;
         };
 
@@ -91,7 +91,7 @@ pub fn update_distributions(
             let source_data = sources.get(distribution.source).ok();
 
             for (i, &t) in t_values.iter().enumerate() {
-                let transform = calculate_transform(spline, t, distribution);
+                let transform = calculate_transform(spline, spline_transform, t, distribution);
 
                 let mut entity_commands = commands.spawn((
                     transform,
@@ -132,7 +132,7 @@ pub fn update_distributions(
                 for (i, &instance_entity) in state.instances.iter().enumerate() {
                     if let Ok((mut transform, _)) = instances.get_mut(instance_entity) {
                         let t = t_values.get(i).copied().unwrap_or(0.5);
-                        *transform = calculate_transform(spline, t, distribution);
+                        *transform = calculate_transform(spline, spline_transform, t, distribution);
 
                         // Mark for surface projection if enabled
                         if projection_query.get(dist_entity).is_ok() {
@@ -166,10 +166,18 @@ fn compute_parametric_t_values(count: usize) -> Vec<f32> {
 }
 
 /// Calculate transform for a distributed instance at parameter t.
-fn calculate_transform(spline: &Spline, t: f32, distribution: &SplineDistribution) -> Transform {
-    let position = spline.evaluate(t).unwrap_or(Vec3::ZERO);
+/// The transform is computed in world space using the spline's GlobalTransform.
+fn calculate_transform(
+    spline: &Spline,
+    spline_transform: &GlobalTransform,
+    t: f32,
+    distribution: &SplineDistribution,
+) -> Transform {
+    // Get position in local spline space
+    let local_position = spline.evaluate(t).unwrap_or(Vec3::ZERO);
 
-    let rotation = match distribution.orientation {
+    // Calculate local rotation based on orientation mode
+    let local_rotation = match distribution.orientation {
         DistributionOrientation::PositionOnly => Quat::IDENTITY,
         DistributionOrientation::AlignToTangent { up } => {
             if let Some(tangent) = spline.evaluate_tangent(t) {
@@ -186,11 +194,16 @@ fn calculate_transform(spline: &Spline, t: f32, distribution: &SplineDistributio
     };
 
     // Apply offset in local space
-    let offset = rotation * distribution.offset;
+    let offset = local_rotation * distribution.offset;
+    let local_pos_with_offset = local_position + offset;
+
+    // Transform to world space using the spline's transform
+    let world_position = spline_transform.transform_point(local_pos_with_offset);
+    let world_rotation = spline_transform.to_scale_rotation_translation().1 * local_rotation;
 
     Transform {
-        translation: position + offset,
-        rotation,
+        translation: world_position,
+        rotation: world_rotation,
         scale: Vec3::ONE,
     }
 }

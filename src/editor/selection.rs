@@ -71,7 +71,8 @@ pub fn pick_control_points(
         return;
     };
 
-    let Ok((camera, camera_transform)) = cameras.single() else {
+    // Find the active camera (handles multiple Camera3d entities)
+    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
         return;
     };
 
@@ -233,7 +234,7 @@ pub fn handle_point_drag(
                 selection_state.dragged_points = vec![(spline_entity, point_index)];
             }
 
-            if let Ok((_, camera_transform)) = cameras.single() {
+            if let Some((_, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) {
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
 
                 // Store initial plane point for consistent dragging (in world space)
@@ -262,7 +263,7 @@ pub fn handle_point_drag(
         let Some(cursor_pos) = window.cursor_position() else {
             return;
         };
-        let Ok((camera, camera_transform)) = cameras.single() else {
+        let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
             return;
         };
         let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
@@ -370,7 +371,8 @@ pub fn handle_box_selection(
         return;
     };
 
-    let Ok((camera, camera_transform)) = cameras.single() else {
+    // Find the active camera (handles multiple Camera3d entities)
+    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
         return;
     };
 
@@ -473,7 +475,8 @@ pub fn render_box_selection(
         return;
     };
 
-    let Ok((camera, camera_transform)) = cameras.single() else {
+    // Find the active camera (handles multiple Camera3d entities)
+    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
         return;
     };
 
