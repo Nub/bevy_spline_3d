@@ -10,7 +10,7 @@ use crate::spline::{
     ControlPointMarker, ProjectedSplineCache, SelectedControlPoint, SelectedSpline, Spline,
     SplineProjectionConfig, SplineType, project_spline_point,
 };
-use crate::surface::SurfaceProjection;
+use crate::surface::SplineMeshProjection;
 
 use super::{EditorSettings, SplineXRayGizmos};
 
@@ -79,11 +79,11 @@ pub fn project_spline_visualization(
     settings: Res<EditorSettings>,
     spatial_query: SpatialQuery,
     // Query all roads/distributions with projection (including changed ones)
-    roads: Query<(&SplineRoad, &SurfaceProjection)>,
-    distributions: Query<(&SplineDistribution, &SurfaceProjection)>,
+    roads: Query<(&SplineRoad, &SplineMeshProjection)>,
+    distributions: Query<(&SplineDistribution, &SplineMeshProjection)>,
     // Track when projection settings change
-    changed_road_projections: Query<&SplineRoad, Changed<SurfaceProjection>>,
-    changed_dist_projections: Query<&SplineDistribution, Changed<SurfaceProjection>>,
+    changed_road_projections: Query<&SplineRoad, Changed<SplineMeshProjection>>,
+    changed_dist_projections: Query<&SplineDistribution, Changed<SplineMeshProjection>>,
     // All splines with their caches
     all_splines: Query<(
         Entity,
@@ -98,7 +98,7 @@ pub fn project_spline_visualization(
     >,
 ) {
     // Build a map of splines that have surface projection enabled via roads or distributions
-    let mut projected_splines: std::collections::HashMap<Entity, &SurfaceProjection> =
+    let mut projected_splines: std::collections::HashMap<Entity, &SplineMeshProjection> =
         std::collections::HashMap::new();
 
     for (road, projection) in &roads {

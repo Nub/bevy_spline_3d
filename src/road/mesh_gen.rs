@@ -5,7 +5,7 @@ use bevy::{
 
 use crate::geometry::CoordinateFrame;
 use crate::spline::Spline;
-use crate::surface::SurfaceProjection;
+use crate::surface::SplineMeshProjection;
 
 use super::{GeneratedRoadMesh, SplineRoad};
 use super::projection::NeedsProjection;
@@ -238,7 +238,7 @@ pub fn update_road_meshes(
     all_roads: Query<(Entity, &SplineRoad, Option<&MeshMaterial3d<StandardMaterial>>)>,
     existing_road_meshes: Query<(Entity, &GeneratedRoadMesh)>,
     road_mesh_children: Query<&Children>,
-    projection_query: Query<(), With<SurfaceProjection>>,
+    projection_query: Query<(), With<SplineMeshProjection>>,
 ) {
     let changed_spline_set: std::collections::HashSet<Entity> = changed_splines.iter().collect();
 

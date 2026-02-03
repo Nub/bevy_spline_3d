@@ -7,7 +7,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::surface::{project_point, SurfaceProjection};
+use crate::surface::{project_point, SplineMeshProjection};
 
 use super::{CachedSplineCurve, Spline};
 
@@ -28,12 +28,12 @@ pub struct ProjectedSplineCache {
 
 /// Configuration for spline projection visualization.
 ///
-/// This is separate from the `SurfaceProjection` used for meshes because
+/// This is separate from the `SplineMeshProjection` used for meshes because
 /// visualization may need different offsets to prevent z-fighting with gizmos.
 #[derive(Clone, Debug)]
 pub struct SplineProjectionConfig<'a> {
     /// The surface projection settings.
-    pub surface: &'a SurfaceProjection,
+    pub surface: &'a SplineMeshProjection,
     /// Additional visual offset above the surface (for gizmo visibility).
     pub visual_offset: f32,
 }

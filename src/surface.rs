@@ -12,7 +12,7 @@ use bevy::prelude::*;
 /// to make it conform to terrain below.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
-pub struct SurfaceProjection {
+pub struct SplineMeshProjection {
     /// Whether surface projection is enabled.
     pub enabled: bool,
     /// Offset above the spline point to start the raycast from.
@@ -31,7 +31,7 @@ pub struct SurfaceProjection {
     pub collision_layers: Option<LayerMask>,
 }
 
-impl Default for SurfaceProjection {
+impl Default for SplineMeshProjection {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -44,7 +44,7 @@ impl Default for SurfaceProjection {
     }
 }
 
-impl SurfaceProjection {
+impl SplineMeshProjection {
     /// Create a new surface projection with default settings.
     pub fn new() -> Self {
         Self::default()
@@ -120,7 +120,7 @@ impl RawProjectionHit {
 }
 
 /// Create a spatial query filter from projection config.
-pub fn create_projection_filter(config: &SurfaceProjection) -> SpatialQueryFilter {
+pub fn create_projection_filter(config: &SplineMeshProjection) -> SpatialQueryFilter {
     if let Some(layers) = config.collision_layers {
         SpatialQueryFilter::default().with_mask(layers)
     } else {
@@ -135,7 +135,7 @@ pub fn create_projection_filter(config: &SurfaceProjection) -> SpatialQueryFilte
 pub fn cast_projection_ray(
     spatial_query: &SpatialQuery,
     point: Vec3,
-    config: &SurfaceProjection,
+    config: &SplineMeshProjection,
 ) -> Option<RawProjectionHit> {
     if !config.enabled {
         return None;
@@ -169,7 +169,7 @@ pub fn cast_projection_ray(
 pub fn project_point(
     spatial_query: &SpatialQuery,
     point: Vec3,
-    config: &SurfaceProjection,
+    config: &SplineMeshProjection,
 ) -> Option<ProjectionHit> {
     let raw = cast_projection_ray(spatial_query, point, config)?;
 
@@ -183,7 +183,7 @@ pub fn project_point(
 pub fn project_point_or_original(
     spatial_query: &SpatialQuery,
     point: Vec3,
-    config: &SurfaceProjection,
+    config: &SplineMeshProjection,
 ) -> Vec3 {
     project_point(spatial_query, point, config)
         .map(|hit| hit.position)
@@ -192,13 +192,13 @@ pub fn project_point_or_original(
 
 /// Plugin for surface projection functionality.
 ///
-/// This plugin registers the `SurfaceProjection` component and integrates
+/// This plugin registers the `SplineMeshProjection` component and integrates
 /// with the road and distribution systems when the `surface_projection`
 /// feature is enabled.
-pub struct SurfaceProjectionPlugin;
+pub struct SplineMeshProjectionPlugin;
 
-impl Plugin for SurfaceProjectionPlugin {
+impl Plugin for SplineMeshProjectionPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<SurfaceProjection>();
+        app.register_type::<SplineMeshProjection>();
     }
 }

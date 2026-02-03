@@ -84,7 +84,7 @@ pub use distribution::SplineDistributionPlugin;
 pub use path_follow::SplineFollowPlugin;
 pub use road::SplineRoadPlugin;
 pub use spline::SplinePlugin;
-pub use surface::SurfaceProjectionPlugin;
+pub use surface::SplineMeshProjectionPlugin;
 
 #[cfg(feature = "editor")]
 pub use editor::SplineEditorPlugin;
@@ -116,8 +116,8 @@ pub mod prelude {
     };
 
     pub use crate::surface::{
-        ProjectionHit, ProjectionLayer, RawProjectionHit, SurfaceProjection,
-        SurfaceProjectionPlugin, cast_projection_ray, create_projection_filter,
+        ProjectionHit, ProjectionLayer, RawProjectionHit, SplineMeshProjection,
+        SplineMeshProjectionPlugin, cast_projection_ray, create_projection_filter,
     };
 
     pub use crate::geometry::CoordinateFrame;

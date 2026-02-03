@@ -3,7 +3,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::surface::{cast_projection_ray, SurfaceProjection};
+use crate::surface::{cast_projection_ray, SplineMeshProjection};
 
 use super::{DistributedInstance, SplineDistribution};
 
@@ -22,7 +22,7 @@ pub struct NeedsInstanceProjection;
 pub fn project_distributed_instances(
     mut commands: Commands,
     spatial_query: SpatialQuery,
-    distributions: Query<&SurfaceProjection, With<SplineDistribution>>,
+    distributions: Query<&SplineMeshProjection, With<SplineDistribution>>,
     mut instances: Query<(Entity, &DistributedInstance, &mut Transform), With<NeedsInstanceProjection>>,
 ) {
     for (instance_entity, instance, mut transform) in &mut instances {

@@ -7,7 +7,7 @@ use bevy::{
     prelude::*,
 };
 
-use crate::surface::{create_projection_filter, SurfaceProjection};
+use crate::surface::{create_projection_filter, SplineMeshProjection};
 
 use super::{GeneratedRoadMesh, SplineRoad};
 
@@ -27,7 +27,7 @@ pub fn project_road_meshes(
     mut commands: Commands,
     spatial_query: SpatialQuery,
     mut meshes: ResMut<Assets<Mesh>>,
-    roads: Query<&SurfaceProjection, With<SplineRoad>>,
+    roads: Query<&SplineMeshProjection, With<SplineRoad>>,
     road_meshes: Query<(Entity, &GeneratedRoadMesh, &Mesh3d, &GlobalTransform), With<NeedsProjection>>,
 ) {
     for (mesh_entity, generated, mesh3d, global_transform) in &road_meshes {
@@ -86,7 +86,7 @@ struct RowProjection {
 fn project_mesh_vertices(
     mesh: &mut Mesh,
     spatial_query: &SpatialQuery,
-    config: &SurfaceProjection,
+    config: &SplineMeshProjection,
     transform: &Transform,
 ) -> Option<Aabb> {
     let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?;

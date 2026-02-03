@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::geometry::CoordinateFrame;
 use crate::spline::{ArcLengthTable, Spline};
-use crate::surface::SurfaceProjection;
+use crate::surface::SplineMeshProjection;
 
 use super::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
@@ -36,7 +36,7 @@ pub fn update_distributions(
     mut instances: Query<(&mut Transform, &DistributedInstance)>,
     changed_splines: Query<Entity, Or<(Changed<Spline>, Changed<GlobalTransform>)>>,
     changed_distributions: Query<Entity, Changed<SplineDistribution>>,
-    projection_query: Query<(), With<SurfaceProjection>>,
+    projection_query: Query<(), With<SplineMeshProjection>>,
 ) {
     // Collect changed spline entities for quick lookup
     let changed_spline_set: std::collections::HashSet<Entity> =
