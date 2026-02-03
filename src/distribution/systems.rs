@@ -1,3 +1,4 @@
+use avian3d::prelude::Collider;
 use bevy::prelude::*;
 
 use crate::geometry::CoordinateFrame;
@@ -31,6 +32,7 @@ pub fn update_distributions(
     sources: Query<(
         Option<&Mesh3d>,
         Option<&MeshMaterial3d<StandardMaterial>>,
+        Option<&Collider>,
         Option<&Children>,
     )>,
     mut instances: Query<(&mut Transform, &DistributedInstance)>,
@@ -102,13 +104,16 @@ pub fn update_distributions(
                     Visibility::default(),
                 ));
 
-                // Clone visual components from source
-                if let Some((mesh, material, _children)) = source_data {
+                // Clone visual and physics components from source
+                if let Some((mesh, material, collider, _children)) = source_data {
                     if let Some(mesh) = mesh {
                         entity_commands.insert(mesh.clone());
                     }
                     if let Some(material) = material {
                         entity_commands.insert(material.clone());
+                    }
+                    if let Some(collider) = collider {
+                        entity_commands.insert(collider.clone());
                     }
                 }
 
