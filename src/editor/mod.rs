@@ -6,15 +6,38 @@ pub use selection::SelectionState;
 
 use bevy::{gizmos::config::GizmoConfigStore, prelude::*};
 
+/// Custom gizmo config group for spline x-ray rendering (shows through geometry).
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct SplineXRayGizmos;
+
 /// Settings for the spline editor.
 #[derive(Resource, Debug, Clone)]
 pub struct EditorSettings {
-    /// Whether the editor is enabled (responds to input).
+    /// Whether the editor is enabled (responds to mouse input for picking/dragging).
     pub enabled: bool,
+    /// Whether keyboard hotkeys are enabled (A, X, Tab, C, Escape).
+    /// Set to false if you want to handle hotkeys yourself.
+    pub hotkeys_enabled: bool,
+    /// Whether clicking on empty space clears the current selection.
+    /// Set to false if you want to manage spline selection externally.
+    pub clear_selection_on_empty_click: bool,
+    /// Whether box selection is enabled (click and drag to select multiple points).
+    /// Set to false to disable box selection entirely.
+    pub box_selection_enabled: bool,
     /// Whether to show gizmos (spline curves and control points).
     pub show_gizmos: bool,
     /// Whether to show Bézier handle lines and CatmullRom connections.
     pub show_handle_lines: bool,
+    /// Whether to only show control points for selected splines.
+    /// When true, control points are hidden for unselected splines.
+    /// When false, all splines show their control points (with different colors).
+    pub show_control_points_only_for_selected: bool,
+    /// Whether to show spline gizmos through geometry (x-ray mode).
+    /// When true, splines are rendered twice: once normally and once with
+    /// depth bias to show through occluding geometry with faded colors.
+    pub xray_enabled: bool,
+    /// Opacity multiplier for x-ray (occluded) gizmo pass (0.0 - 1.0).
+    pub xray_opacity: f32,
     /// Visual appearance settings for gizmos.
     pub visuals: GizmoVisuals,
     /// Color settings for editor gizmos.
@@ -112,8 +135,14 @@ impl Default for EditorSettings {
     fn default() -> Self {
         Self {
             enabled: true,
+            hotkeys_enabled: true,
+            clear_selection_on_empty_click: true,
+            box_selection_enabled: true,
             show_gizmos: true,
             show_handle_lines: true,
+            show_control_points_only_for_selected: false,
+            xray_enabled: true,
+            xray_opacity: 0.25,
             visuals: GizmoVisuals::default(),
             colors: GizmoColors::default(),
             sizes: GizmoSizes::default(),
@@ -143,8 +172,14 @@ fn sync_gizmo_config(
     settings: Res<EditorSettings>,
     mut config_store: ResMut<GizmoConfigStore>,
 ) {
+    // Configure default gizmos (normal depth testing)
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
     config.line.width = settings.sizes.line_width;
+
+    // Configure x-ray gizmos (render through geometry)
+    let (xray_config, _) = config_store.config_mut::<SplineXRayGizmos>();
+    xray_config.line.width = settings.sizes.line_width;
+    xray_config.depth_bias = -1.0; // Always render in front (through geometry)
 }
 
 /// Plugin that adds interactive spline editing functionality.
@@ -174,7 +209,8 @@ pub struct SplineEditorPlugin;
 
 impl Plugin for SplineEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EditorSettings>()
+        app.init_gizmo_group::<SplineXRayGizmos>()
+            .init_resource::<EditorSettings>()
             .init_resource::<SelectionState>()
             .add_systems(
                 Update,

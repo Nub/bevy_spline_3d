@@ -14,7 +14,7 @@ pub fn handle_hotkeys(
     selected_points: Query<(Entity, &ControlPointMarker), With<SelectedControlPoint>>,
     all_markers: Query<(Entity, &ControlPointMarker)>,
 ) {
-    if !settings.enabled {
+    if !settings.enabled || !settings.hotkeys_enabled {
         return;
     }
 

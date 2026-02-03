@@ -12,7 +12,7 @@ use crate::spline::{
 };
 use crate::surface::SurfaceProjection;
 
-use super::EditorSettings;
+use super::{EditorSettings, SplineXRayGizmos};
 
 /// Run condition that checks if avian3d physics is available.
 /// We check for the Gravity resource which is always present when PhysicsPlugins is added.
@@ -214,21 +214,25 @@ fn needs_reprojection(spline: &Spline, projected: Option<&ProjectedSplineCache>)
 /// Uses cached sample points from [`CachedSplineCurve`] to avoid
 /// resampling splines every frame. When surface projection is enabled,
 /// uses projected points from [`ProjectedSplineCache`].
+///
+/// When x-ray is enabled, renders an additional faded pass that shows through geometry.
 pub fn render_spline_curves(
     settings: Res<EditorSettings>,
     splines: Query<(
         &Spline,
+        &GlobalTransform,
         Option<&SelectedSpline>,
         Option<&CachedSplineCurve>,
         Option<&ProjectedSplineCache>,
     )>,
     mut gizmos: Gizmos,
+    mut xray_gizmos: Gizmos<SplineXRayGizmos>,
 ) {
     if !settings.show_gizmos {
         return;
     }
 
-    for (spline, selected, cache, projected) in &splines {
+    for (spline, global_transform, selected, cache, projected) in &splines {
         if !spline.is_valid() {
             continue;
         }
@@ -248,24 +252,51 @@ pub fn render_spline_curves(
             &fallback_points
         };
 
-        for window in points_ref.windows(2) {
+        // Transform points from local to world space
+        let world_points: Vec<Vec3> = points_ref
+            .iter()
+            .map(|&p| global_transform.transform_point(p))
+            .collect();
+
+        // X-ray pass (faded, renders through geometry)
+        if settings.xray_enabled {
+            let xray_color = color.with_alpha(settings.xray_opacity);
+            for window in world_points.windows(2) {
+                xray_gizmos.line(window[0], window[1], xray_color);
+            }
+            if spline.closed && world_points.len() >= 2 {
+                xray_gizmos.line(world_points[world_points.len() - 1], world_points[0], xray_color);
+            }
+        }
+
+        // Normal pass (with depth testing)
+        for window in world_points.windows(2) {
             gizmos.line(window[0], window[1], color);
         }
 
         // For closed splines, connect last to first
-        if spline.closed && points_ref.len() >= 2 {
-            gizmos.line(points_ref[points_ref.len() - 1], points_ref[0], color);
+        if spline.closed && world_points.len() >= 2 {
+            gizmos.line(world_points[world_points.len() - 1], world_points[0], color);
         }
 
         // Render Bezier handle lines (using effective control points)
         if spline.spline_type == SplineType::CubicBezier && settings.show_handle_lines {
             let handle_points = get_effective_control_points(spline, projected);
-            render_bezier_handles(handle_points, &settings, &mut gizmos);
+            let world_handles: Vec<Vec3> = handle_points
+                .iter()
+                .map(|&p| global_transform.transform_point(p))
+                .collect();
+            render_bezier_handles(&world_handles, &settings, &mut gizmos, &mut xray_gizmos);
         }
     }
 }
 
-fn render_bezier_handles(points: &[Vec3], settings: &EditorSettings, gizmos: &mut Gizmos) {
+fn render_bezier_handles(
+    points: &[Vec3],
+    settings: &EditorSettings,
+    gizmos: &mut Gizmos,
+    xray_gizmos: &mut Gizmos<SplineXRayGizmos>,
+) {
     if points.len() < 4 {
         return;
     }
@@ -274,7 +305,13 @@ fn render_bezier_handles(points: &[Vec3], settings: &EditorSettings, gizmos: &mu
     for seg in 0..num_segments {
         let i = seg * 3;
         if i + 3 < points.len() {
-            // Line from anchor to handle
+            // X-ray pass
+            if settings.xray_enabled {
+                let xray_color = settings.colors.handle_line.with_alpha(settings.xray_opacity);
+                xray_gizmos.line(points[i], points[i + 1], xray_color);
+                xray_gizmos.line(points[i + 3], points[i + 2], xray_color);
+            }
+            // Normal pass - line from anchor to handle
             gizmos.line(points[i], points[i + 1], settings.colors.handle_line);
             gizmos.line(points[i + 3], points[i + 2], settings.colors.handle_line);
         }
@@ -283,11 +320,13 @@ fn render_bezier_handles(points: &[Vec3], settings: &EditorSettings, gizmos: &mu
 
 /// System to render control point spheres.
 /// Uses the centralized helper to get effective positions.
+/// When x-ray is enabled, renders an additional faded pass that shows through geometry.
 pub fn render_control_points(
     settings: Res<EditorSettings>,
-    splines: Query<(Entity, &Spline, Option<&SelectedSpline>, Option<&ProjectedSplineCache>)>,
+    splines: Query<(Entity, &Spline, &GlobalTransform, Option<&SelectedSpline>, Option<&ProjectedSplineCache>)>,
     selected_points: Query<&ControlPointMarker, With<SelectedControlPoint>>,
     mut gizmos: Gizmos,
+    mut xray_gizmos: Gizmos<SplineXRayGizmos>,
 ) {
     if !settings.show_gizmos {
         return;
@@ -306,25 +345,36 @@ pub fn render_control_points(
     let sizes = &settings.sizes;
     let colors = &settings.colors;
 
-    for (entity, spline, spline_selected, projected) in &splines {
+    for (entity, spline, global_transform, spline_selected, projected) in &splines {
         let entity_selected = selected_indices.get(&entity);
         let is_spline_selected = spline_selected.is_some();
+
+        // Skip unselected splines if configured to only show control points for selected
+        if settings.show_control_points_only_for_selected && !is_spline_selected {
+            continue;
+        }
 
         // Use the centralized helper to get effective control points
         let control_points = get_effective_control_points(spline, projected);
 
+        // Transform control points to world space
+        let world_points: Vec<Vec3> = control_points
+            .iter()
+            .map(|&p| global_transform.transform_point(p))
+            .collect();
+
         // For CatmullRom splines, draw lines connecting adjacent control points
         // to show what each control point is attached to
         if spline.spline_type == SplineType::CatmullRom
-            && control_points.len() >= 2
+            && world_points.len() >= 2
             && settings.show_handle_lines
         {
-            render_catmull_rom_connections(control_points, spline.closed, &settings, &mut gizmos);
+            render_catmull_rom_connections(&world_points, spline.closed, &settings, &mut gizmos, &mut xray_gizmos);
         }
 
-        let last_index = control_points.len().saturating_sub(1);
+        let last_index = world_points.len().saturating_sub(1);
 
-        for (i, &point) in control_points.iter().enumerate() {
+        for (i, &point) in world_points.iter().enumerate() {
             let is_selected = entity_selected.is_some_and(|indices| indices.contains(&i));
             // Endpoints are first and last points, but only for open splines
             let is_endpoint = !spline.closed && (i == 0 || i == last_index);
@@ -359,6 +409,13 @@ pub fn render_control_points(
                 sizes.point_radius
             };
 
+            // X-ray pass (faded, renders through geometry)
+            if settings.xray_enabled {
+                let xray_color = color.with_alpha(settings.xray_opacity);
+                xray_gizmos.sphere(Isometry3d::from_translation(point), radius, xray_color);
+            }
+
+            // Normal pass (with depth testing)
             gizmos.sphere(Isometry3d::from_translation(point), radius, color);
         }
     }
@@ -371,8 +428,20 @@ fn render_catmull_rom_connections(
     closed: bool,
     settings: &EditorSettings,
     gizmos: &mut Gizmos,
+    xray_gizmos: &mut Gizmos<SplineXRayGizmos>,
 ) {
-    // Draw lines between adjacent control points
+    // X-ray pass
+    if settings.xray_enabled {
+        let xray_color = settings.colors.handle_line.with_alpha(settings.xray_opacity);
+        for window in points.windows(2) {
+            xray_gizmos.line(window[0], window[1], xray_color);
+        }
+        if closed && points.len() >= 2 {
+            xray_gizmos.line(points[points.len() - 1], points[0], xray_color);
+        }
+    }
+
+    // Normal pass - draw lines between adjacent control points
     for window in points.windows(2) {
         gizmos.line(window[0], window[1], settings.colors.handle_line);
     }

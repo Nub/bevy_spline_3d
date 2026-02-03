@@ -50,7 +50,7 @@ pub fn pick_control_points(
     settings: Res<EditorSettings>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    splines: Query<(Entity, &Spline, Option<&ProjectedSplineCache>)>,
+    splines: Query<(Entity, &Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     mut selection_state: ResMut<SelectionState>,
 ) {
     if !settings.enabled {
@@ -81,14 +81,16 @@ pub fn pick_control_points(
 
     let mut closest: Option<(Entity, usize, f32)> = None;
 
-    for (entity, spline, projected) in &splines {
+    for (entity, spline, spline_transform, projected) in &splines {
         // Use the centralized helper to get effective control points
         let control_points = get_effective_control_points(spline, projected);
 
         for (i, &point) in control_points.iter().enumerate() {
+            // Transform point to world space
+            let world_point = spline_transform.transform_point(point);
             // Simple sphere-ray intersection
             let pick_radius = settings.sizes.point_radius * 2.0;
-            if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, point, pick_radius) {
+            if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, world_point, pick_radius) {
                 if closest.is_none() || dist < closest.unwrap().2 {
                     closest = Some((entity, i, dist));
                 }
@@ -126,7 +128,7 @@ pub fn handle_selection_click(
     selection_state: Res<SelectionState>,
     keyboard: Res<ButtonInput<KeyCode>>,
     _splines: Query<(Entity, &Spline)>,
-    selected_splines: Query<Entity, With<SelectedSpline>>,
+    _selected_splines: Query<Entity, With<SelectedSpline>>,
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_points: Query<Entity, With<SelectedControlPoint>>,
     _cameras: Query<&GlobalTransform, With<Camera>>,
@@ -168,12 +170,10 @@ pub fn handle_selection_click(
         } else {
             // Clicking on an unselected point
             if !shift_held {
-                // Clear other selections when clicking without shift
-                clear_all_selections(
-                    &mut commands,
-                    selected_splines.iter(),
-                    selected_points.iter(),
-                );
+                // Clear all control point selections when clicking without shift
+                for entity in selected_points.iter() {
+                    commands.entity(entity).remove::<SelectedControlPoint>();
+                }
             }
 
             // Add selection to spline
@@ -201,7 +201,7 @@ pub fn handle_point_drag(
     mut selection_state: ResMut<SelectionState>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    mut splines: Query<(&mut Spline, Option<&ProjectedSplineCache>)>,
+    mut splines: Query<(&mut Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_points: Query<Entity, With<SelectedControlPoint>>,
 ) {
@@ -236,12 +236,12 @@ pub fn handle_point_drag(
             if let Ok((_, camera_transform)) = cameras.single() {
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
 
-                // Store initial plane point for consistent dragging
-                // Use the centralized helper to get the effective position (matches visual)
-                if let Ok((spline, projected)) = splines.get(spline_entity) {
+                // Store initial plane point for consistent dragging (in world space)
+                if let Ok((spline, spline_transform, projected)) = splines.get(spline_entity) {
                     let control_points = get_effective_control_points(spline, projected);
-                    if let Some(&point) = control_points.get(point_index) {
-                        selection_state.drag_plane_point = point;
+                    if let Some(&local_point) = control_points.get(point_index) {
+                        // Transform to world space for the drag plane
+                        selection_state.drag_plane_point = spline_transform.transform_point(local_point);
                     }
                 }
             }
@@ -269,12 +269,12 @@ pub fn handle_point_drag(
             return;
         };
 
-        // Use the fixed drag plane point for consistent behavior
+        // Use the fixed drag plane point for consistent behavior (in world space)
         let plane_point = selection_state.drag_plane_point;
         let plane_normal = selection_state.drag_plane_normal;
 
-        // Calculate the new position on the drag plane
-        let Some(new_pos) = ray_plane_intersect(
+        // Calculate the new position on the drag plane (in world space)
+        let Some(new_world_pos) = ray_plane_intersect(
             ray.origin,
             *ray.direction,
             plane_point,
@@ -283,35 +283,38 @@ pub fn handle_point_drag(
             return;
         };
 
-        // Calculate delta from the original drag plane point
-        let delta = new_pos - plane_point;
+        // Calculate delta in world space
+        let world_delta = new_world_pos - plane_point;
 
         // Apply delta to all dragged points
-        // We need to collect original positions first to compute consistent offsets
         let dragged_points = selection_state.dragged_points.clone();
 
-        // For single point drag, just set position directly (existing behavior)
+        // For single point drag, set position directly
         if dragged_points.len() == 1 {
             let (spline_entity, point_index) = dragged_points[0];
-            if let Ok((mut spline, _)) = splines.get_mut(spline_entity) {
+            if let Ok((mut spline, spline_transform, _)) = splines.get_mut(spline_entity) {
                 if point_index < spline.control_points.len() {
-                    spline.control_points[point_index] = new_pos;
+                    // Convert world position to local space
+                    let inverse_transform = spline_transform.affine().inverse();
+                    let local_pos = inverse_transform.transform_point3(new_world_pos);
+                    spline.control_points[point_index] = local_pos;
                 }
             }
         } else {
             // For multi-point drag, apply delta to maintain relative positions
             for &(spline_entity, point_index) in &dragged_points {
-                if let Ok((mut spline, _)) = splines.get_mut(spline_entity) {
+                if let Ok((mut spline, spline_transform, _)) = splines.get_mut(spline_entity) {
                     if point_index < spline.control_points.len() {
-                        // We need to track original positions for multi-drag
-                        // For now, apply delta directly (will work but resets each frame)
-                        // A better approach would store original positions on drag start
-                        spline.control_points[point_index] += delta;
+                        // Convert world delta to local space delta
+                        // We need to transform the delta direction, not position
+                        let inverse_transform = spline_transform.affine().inverse();
+                        let local_delta = inverse_transform.transform_vector3(world_delta);
+                        spline.control_points[point_index] += local_delta;
                     }
                 }
             }
             // Update the drag plane point so delta is computed correctly next frame
-            selection_state.drag_plane_point = new_pos;
+            selection_state.drag_plane_point = new_world_pos;
         }
     }
 }
@@ -345,12 +348,12 @@ pub fn handle_box_selection(
     keyboard: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-    splines: Query<(Entity, &Spline, Option<&ProjectedSplineCache>)>,
+    splines: Query<(Entity, &Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_splines: Query<Entity, With<SelectedSpline>>,
     selected_points: Query<Entity, With<SelectedControlPoint>>,
 ) {
-    if !settings.enabled {
+    if !settings.enabled || !settings.box_selection_enabled {
         return;
     }
 
@@ -379,13 +382,19 @@ pub fn handle_box_selection(
         selection_state.box_start = cursor_pos;
         selection_state.box_end = cursor_pos;
 
-        // Clear selection unless shift is held
+        // Always clear control point selection when starting box select (unless shift held)
+        // Only clear spline selection if clear_selection_on_empty_click is enabled
         if !shift_held {
-            clear_all_selections(
-                &mut commands,
-                selected_splines.iter(),
-                selected_points.iter(),
-            );
+            // Always clear control point selections
+            for entity in selected_points.iter() {
+                commands.entity(entity).remove::<SelectedControlPoint>();
+            }
+            // Only clear spline selections if the setting allows
+            if settings.clear_selection_on_empty_click {
+                for entity in selected_splines.iter() {
+                    commands.entity(entity).remove::<SelectedSpline>();
+                }
+            }
         }
     }
 
@@ -412,10 +421,12 @@ pub fn handle_box_selection(
         }
 
         // Find all control points within the box
-        for (spline_entity, spline, projected) in &splines {
+        for (spline_entity, spline, spline_transform, projected) in &splines {
             let control_points = get_effective_control_points(spline, projected);
 
-            for (point_index, &world_pos) in control_points.iter().enumerate() {
+            for (point_index, &local_pos) in control_points.iter().enumerate() {
+                // Transform to world space
+                let world_pos = spline_transform.transform_point(local_pos);
                 // Project world position to screen space
                 let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) else {
                     continue;
@@ -450,7 +461,7 @@ pub fn render_box_selection(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 ) {
-    if !settings.enabled || !settings.show_gizmos {
+    if !settings.enabled || !settings.show_gizmos || !settings.box_selection_enabled {
         return;
     }
 
