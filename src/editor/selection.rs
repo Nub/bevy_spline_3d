@@ -20,6 +20,12 @@ pub struct SelectionState {
     pub drag_plane_normal: Vec3,
     /// The initial drag plane point (for consistent plane during drag).
     pub drag_plane_point: Vec3,
+    /// Whether we're currently box selecting.
+    pub box_selecting: bool,
+    /// Screen-space start position of box selection.
+    pub box_start: Vec2,
+    /// Screen-space end position of box selection.
+    pub box_end: Vec2,
 }
 
 /// Clear all spline and control point selections.
@@ -129,8 +135,8 @@ pub fn handle_selection_click(
         return;
     }
 
-    // Don't process clicks while dragging
-    if selection_state.dragging {
+    // Don't process clicks while dragging or box selecting
+    if selection_state.dragging || selection_state.box_selecting {
         return;
     }
 
@@ -141,36 +147,54 @@ pub fn handle_selection_click(
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
     if let Some((spline_entity, point_index)) = selection_state.hovered_point {
-        // Select this spline
-        if !shift_held {
-            // Clear other selections
-            clear_all_selections(
-                &mut commands,
-                selected_splines.iter(),
-                selected_points.iter(),
-            );
-        }
+        // Check if this point is already selected
+        let already_selected = markers.iter().any(|(marker_entity, marker)| {
+            marker.spline_entity == spline_entity
+                && marker.index == point_index
+                && selected_points.contains(marker_entity)
+        });
 
-        // Add selection to spline
-        commands.entity(spline_entity).insert(SelectedSpline);
+        if already_selected {
+            if shift_held {
+                // Shift-click on selected point: deselect it
+                for (marker_entity, marker) in &markers {
+                    if marker.spline_entity == spline_entity && marker.index == point_index {
+                        commands.entity(marker_entity).remove::<SelectedControlPoint>();
+                    }
+                }
+            }
+            // If not shift-held and already selected, do nothing -
+            // this allows dragging multiple selected points without clearing selection
+        } else {
+            // Clicking on an unselected point
+            if !shift_held {
+                // Clear other selections when clicking without shift
+                clear_all_selections(
+                    &mut commands,
+                    selected_splines.iter(),
+                    selected_points.iter(),
+                );
+            }
 
-        // Find and select the control point marker
-        for (marker_entity, marker) in &markers {
-            if marker.spline_entity == spline_entity && marker.index == point_index {
-                commands.entity(marker_entity).insert(SelectedControlPoint);
+            // Add selection to spline
+            commands.entity(spline_entity).insert(SelectedSpline);
+
+            // Find and select the control point marker
+            for (marker_entity, marker) in &markers {
+                if marker.spline_entity == spline_entity && marker.index == point_index {
+                    commands.entity(marker_entity).insert(SelectedControlPoint);
+                }
             }
         }
-    } else if !shift_held {
-        // Clicked on nothing, clear selection
-        clear_all_selections(
-            &mut commands,
-            selected_splines.iter(),
-            selected_points.iter(),
-        );
     }
+    // Note: We don't clear selection on empty click here anymore.
+    // Box selection handles that - if user just clicks without dragging,
+    // selection is cleared when box selection ends with no points selected.
 }
 
 /// System to handle dragging control points.
+/// When multiple points are selected, they all move together maintaining relative positions.
+#[allow(clippy::too_many_arguments)]
 pub fn handle_point_drag(
     mouse: Res<ButtonInput<MouseButton>>,
     settings: Res<EditorSettings>,
@@ -178,16 +202,36 @@ pub fn handle_point_drag(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     mut splines: Query<(&mut Spline, Option<&ProjectedSplineCache>)>,
+    markers: Query<(Entity, &ControlPointMarker)>,
+    selected_points: Query<Entity, With<SelectedControlPoint>>,
 ) {
     if !settings.enabled {
         return;
     }
 
-    // Start drag - capture the hovered point directly
+    // Start drag - capture the hovered point and all selected points
     if mouse.just_pressed(MouseButton::Left) {
         if let Some((spline_entity, point_index)) = selection_state.hovered_point {
+            // Check if the hovered point is already selected
+            let hovered_is_selected = markers.iter().any(|(marker_entity, marker)| {
+                marker.spline_entity == spline_entity
+                    && marker.index == point_index
+                    && selected_points.contains(marker_entity)
+            });
+
             selection_state.dragging = true;
-            selection_state.dragged_points = vec![(spline_entity, point_index)];
+
+            if hovered_is_selected {
+                // Drag all selected points together
+                selection_state.dragged_points = markers
+                    .iter()
+                    .filter(|(marker_entity, _)| selected_points.contains(*marker_entity))
+                    .map(|(_, marker)| (marker.spline_entity, marker.index))
+                    .collect();
+            } else {
+                // Only drag the hovered point
+                selection_state.dragged_points = vec![(spline_entity, point_index)];
+            }
 
             if let Ok((_, camera_transform)) = cameras.single() {
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
@@ -210,7 +254,7 @@ pub fn handle_point_drag(
         selection_state.dragged_points.clear();
     }
 
-    // Continue drag - use stored dragged_points, not the component query
+    // Continue drag - move all dragged points by the same delta
     if selection_state.dragging && !selection_state.dragged_points.is_empty() {
         let Ok(window) = windows.single() else {
             return;
@@ -229,20 +273,45 @@ pub fn handle_point_drag(
         let plane_point = selection_state.drag_plane_point;
         let plane_normal = selection_state.drag_plane_normal;
 
-        for &(spline_entity, point_index) in &selection_state.dragged_points.clone() {
+        // Calculate the new position on the drag plane
+        let Some(new_pos) = ray_plane_intersect(
+            ray.origin,
+            *ray.direction,
+            plane_point,
+            plane_normal,
+        ) else {
+            return;
+        };
+
+        // Calculate delta from the original drag plane point
+        let delta = new_pos - plane_point;
+
+        // Apply delta to all dragged points
+        // We need to collect original positions first to compute consistent offsets
+        let dragged_points = selection_state.dragged_points.clone();
+
+        // For single point drag, just set position directly (existing behavior)
+        if dragged_points.len() == 1 {
+            let (spline_entity, point_index) = dragged_points[0];
             if let Ok((mut spline, _)) = splines.get_mut(spline_entity) {
                 if point_index < spline.control_points.len() {
-                    // Intersect ray with the fixed drag plane
-                    if let Some(new_pos) = ray_plane_intersect(
-                        ray.origin,
-                        *ray.direction,
-                        plane_point,
-                        plane_normal,
-                    ) {
-                        spline.control_points[point_index] = new_pos;
+                    spline.control_points[point_index] = new_pos;
+                }
+            }
+        } else {
+            // For multi-point drag, apply delta to maintain relative positions
+            for &(spline_entity, point_index) in &dragged_points {
+                if let Ok((mut spline, _)) = splines.get_mut(spline_entity) {
+                    if point_index < spline.control_points.len() {
+                        // We need to track original positions for multi-drag
+                        // For now, apply delta directly (will work but resets each frame)
+                        // A better approach would store original positions on drag start
+                        spline.control_points[point_index] += delta;
                     }
                 }
             }
+            // Update the drag plane point so delta is computed correctly next frame
+            selection_state.drag_plane_point = new_pos;
         }
     }
 }
@@ -263,5 +332,176 @@ fn ray_plane_intersect(
         Some(ray_origin + ray_direction * t)
     } else {
         None
+    }
+}
+
+/// System to handle box selection of multiple control points.
+#[allow(clippy::too_many_arguments)]
+pub fn handle_box_selection(
+    mut commands: Commands,
+    mouse: Res<ButtonInput<MouseButton>>,
+    settings: Res<EditorSettings>,
+    mut selection_state: ResMut<SelectionState>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    splines: Query<(Entity, &Spline, Option<&ProjectedSplineCache>)>,
+    markers: Query<(Entity, &ControlPointMarker)>,
+    selected_splines: Query<Entity, With<SelectedSpline>>,
+    selected_points: Query<Entity, With<SelectedControlPoint>>,
+) {
+    if !settings.enabled {
+        return;
+    }
+
+    // Don't box select while dragging a point
+    if selection_state.dragging {
+        return;
+    }
+
+    let Ok(window) = windows.single() else {
+        return;
+    };
+
+    let Some(cursor_pos) = window.cursor_position() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = cameras.single() else {
+        return;
+    };
+
+    let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
+    // Start box selection when clicking on empty space
+    if mouse.just_pressed(MouseButton::Left) && selection_state.hovered_point.is_none() {
+        selection_state.box_selecting = true;
+        selection_state.box_start = cursor_pos;
+        selection_state.box_end = cursor_pos;
+
+        // Clear selection unless shift is held
+        if !shift_held {
+            clear_all_selections(
+                &mut commands,
+                selected_splines.iter(),
+                selected_points.iter(),
+            );
+        }
+    }
+
+    // Update box end position while selecting
+    if selection_state.box_selecting {
+        selection_state.box_end = cursor_pos;
+    }
+
+    // End box selection
+    if mouse.just_released(MouseButton::Left) && selection_state.box_selecting {
+        selection_state.box_selecting = false;
+
+        // Calculate box bounds (handle inverted boxes)
+        let min_x = selection_state.box_start.x.min(selection_state.box_end.x);
+        let max_x = selection_state.box_start.x.max(selection_state.box_end.x);
+        let min_y = selection_state.box_start.y.min(selection_state.box_end.y);
+        let max_y = selection_state.box_start.y.max(selection_state.box_end.y);
+
+        // Only process if box has some size (not just a click)
+        let box_size = (max_x - min_x) * (max_y - min_y);
+        if box_size < 25.0 {
+            // Too small, treat as a click on empty space - selection already cleared
+            return;
+        }
+
+        // Find all control points within the box
+        for (spline_entity, spline, projected) in &splines {
+            let control_points = get_effective_control_points(spline, projected);
+
+            for (point_index, &world_pos) in control_points.iter().enumerate() {
+                // Project world position to screen space
+                let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) else {
+                    continue;
+                };
+
+                // Check if point is within box bounds
+                if screen_pos.x >= min_x
+                    && screen_pos.x <= max_x
+                    && screen_pos.y >= min_y
+                    && screen_pos.y <= max_y
+                {
+                    // Select this spline
+                    commands.entity(spline_entity).insert(SelectedSpline);
+
+                    // Find and select the control point marker
+                    for (marker_entity, marker) in &markers {
+                        if marker.spline_entity == spline_entity && marker.index == point_index {
+                            commands.entity(marker_entity).insert(SelectedControlPoint);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Render the box selection rectangle.
+pub fn render_box_selection(
+    selection_state: Res<SelectionState>,
+    settings: Res<EditorSettings>,
+    mut gizmos: Gizmos,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+) {
+    if !settings.enabled || !settings.show_gizmos {
+        return;
+    }
+
+    if !selection_state.box_selecting {
+        return;
+    }
+
+    let Ok(_window) = windows.single() else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = cameras.single() else {
+        return;
+    };
+
+    // Get the four corners of the box in screen space
+    let start = selection_state.box_start;
+    let end = selection_state.box_end;
+
+    let corners_2d = [
+        Vec2::new(start.x, start.y),
+        Vec2::new(end.x, start.y),
+        Vec2::new(end.x, end.y),
+        Vec2::new(start.x, end.y),
+    ];
+
+    // Project corners to world space on a plane in front of the camera
+    let cam_pos = camera_transform.translation();
+    let cam_forward = camera_transform.forward();
+    let plane_distance = 10.0; // Distance in front of camera to draw the box
+    let plane_point = cam_pos + *cam_forward * plane_distance;
+
+    let mut corners_3d = Vec::new();
+    for corner_2d in &corners_2d {
+        if let Ok(ray) = camera.viewport_to_world(camera_transform, *corner_2d) {
+            if let Some(world_pos) = ray_plane_intersect(
+                ray.origin,
+                *ray.direction,
+                plane_point,
+                cam_forward.as_vec3(),
+            ) {
+                corners_3d.push(world_pos);
+            }
+        }
+    }
+
+    if corners_3d.len() == 4 {
+        let color = Color::srgba(0.3, 0.6, 1.0, 0.8);
+        gizmos.line(corners_3d[0], corners_3d[1], color);
+        gizmos.line(corners_3d[1], corners_3d[2], color);
+        gizmos.line(corners_3d[2], corners_3d[3], color);
+        gizmos.line(corners_3d[3], corners_3d[0], color);
     }
 }

@@ -192,6 +192,8 @@ impl Plugin for SplineEditorPlugin {
                     selection::pick_control_points,
                     selection::handle_selection_click,
                     selection::handle_point_drag,
+                    selection::handle_box_selection,
+                    selection::render_box_selection,
                     // Input
                     input::handle_hotkeys,
                 )

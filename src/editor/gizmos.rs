@@ -384,12 +384,22 @@ fn render_catmull_rom_connections(
 }
 
 /// Sync control point marker entities with spline control points.
+/// Preserves selection state when markers are recreated.
 pub fn sync_control_point_entities(
     mut commands: Commands,
     splines: Query<(Entity, &Spline), Changed<Spline>>,
     existing_markers: Query<(Entity, &ControlPointMarker)>,
+    selected_points: Query<Entity, With<SelectedControlPoint>>,
 ) {
     for (spline_entity, spline) in &splines {
+        // Collect which indices were selected before we despawn markers
+        let mut selected_indices: Vec<usize> = Vec::new();
+        for (marker_entity, marker) in &existing_markers {
+            if marker.spline_entity == spline_entity && selected_points.contains(marker_entity) {
+                selected_indices.push(marker.index);
+            }
+        }
+
         // Remove old markers for this spline
         for (marker_entity, marker) in &existing_markers {
             if marker.spline_entity == spline_entity {
@@ -397,12 +407,17 @@ pub fn sync_control_point_entities(
             }
         }
 
-        // Create new markers
+        // Create new markers, preserving selection
         for (index, _) in spline.control_points.iter().enumerate() {
-            commands.spawn(ControlPointMarker {
+            let mut entity_commands = commands.spawn(ControlPointMarker {
                 spline_entity,
                 index,
             });
+
+            // Re-apply selection if this index was previously selected
+            if selected_indices.contains(&index) {
+                entity_commands.insert(SelectedControlPoint);
+            }
         }
     }
 }
