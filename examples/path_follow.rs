@@ -20,7 +20,7 @@ fn main() {
 }
 
 #[derive(Component)]
-struct FollowerLabel(&'static str);
+pub struct FollowerLabel(&'static str);
 
 fn setup(
     mut commands: Commands,
@@ -148,10 +148,7 @@ fn setup(
     println!("================================\n");
 }
 
-fn handle_input(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut followers: Query<&mut SplineFollower>,
-) {
+fn handle_input(keyboard: Res<ButtonInput<KeyCode>>, mut followers: Query<&mut SplineFollower>) {
     // Space to toggle pause
     if keyboard.just_pressed(KeyCode::Space) {
         for mut follower in &mut followers {
@@ -174,15 +171,9 @@ fn handle_input(
     }
 }
 
-fn log_follower_events(
-    mut events: MessageReader<FollowerEvent>,
-    labels: Query<&FollowerLabel>,
-) {
+fn log_follower_events(mut events: MessageReader<FollowerEvent>, labels: Query<&FollowerLabel>) {
     for event in events.read() {
-        let label = labels
-            .get(event.entity)
-            .map(|l| l.0)
-            .unwrap_or("Unknown");
+        let label = labels.get(event.entity).map(|l| l.0).unwrap_or("Unknown");
 
         match event.kind {
             FollowerEventKind::ReachedEnd => {

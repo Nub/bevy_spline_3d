@@ -11,7 +11,7 @@ const ARC_LENGTH_SAMPLES: usize = 128;
 /// System that updates all spline followers.
 pub fn update_spline_followers(
     mut followers: Query<(Entity, &mut SplineFollower, &mut Transform)>,
-    splines: Query<&Spline>,
+    splines: Query<(&Spline, &GlobalTransform)>,
     time: Res<Time>,
     mut events: MessageWriter<FollowerEvent>,
 ) {
@@ -23,8 +23,8 @@ pub fn update_spline_followers(
             continue;
         }
 
-        // Get the spline
-        let Ok(spline) = splines.get(follower.spline) else {
+        // Get the spline and its transform
+        let Ok((spline, spline_transform)) = splines.get(follower.spline) else {
             continue;
         };
 
@@ -66,17 +66,23 @@ pub fn update_spline_followers(
         }
 
         // Update transform
-        if let Some(position) = spline.evaluate(follower.t) {
+        if let Some(local_position) = spline.evaluate(follower.t) {
+            // Transform the local position to world space using the spline's transform
+            let world_position = spline_transform.transform_point(local_position);
+
             let rotation = if follower.align_to_tangent {
-                calculate_orientation(spline, follower.t, follower.up_vector, follower.direction)
+                let local_rotation =
+                    calculate_orientation(spline, follower.t, follower.up_vector, follower.direction);
+                // Combine spline's rotation with the tangent-based rotation
+                spline_transform.to_scale_rotation_translation().1 * local_rotation
             } else {
                 transform.rotation
             };
 
-            // Apply offset in local space
+            // Apply offset in local space (relative to follower's rotation)
             let world_offset = rotation * follower.offset;
 
-            transform.translation = position + world_offset;
+            transform.translation = world_position + world_offset;
             transform.rotation = rotation;
         }
     }
